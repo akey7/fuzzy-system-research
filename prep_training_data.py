@@ -40,6 +40,7 @@ def make_long_df():
                         "high": day["high"],
                         "low": day["low"],
                         "close": day["close"],
+                        "split_factor": day["split_factor"],
                     }
                 )
     df = pd.DataFrame(rows)
