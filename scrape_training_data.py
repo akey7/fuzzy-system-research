@@ -73,26 +73,8 @@ if __name__ == "__main__":
     marketstack_api_key = os.getenv("MARKETSTACK_API_KEY")
     base_url = "http://api.marketstack.com/v2/eod"
 
-    # Setup the API call for AAPL history
-    # params = {
-    #     "access_key": marketstack_api_key,
-    #     "symbols": "AAPL",
-    #     "date_from": date_from,
-    #     "date_to": date_to,
-    #     "limit": 3000,
-    # }
-
-    # # Fetch the dadta and report the number of records
-    # all_data = fetch_all_results(base_url, params)
-    # print(f"Fetched {len(all_data)} records")
-
-    # # Write the AAPL history
-    # aapl_history_filename = os.path.join("output", "AAPL_history.json")
-    # with open(aapl_history_filename, "w") as file:
-    #     json.dump(all_data, file, indent=4, sort_keys=True)
-
-    # Scrape the other 5
-    symbols = ["GOOG", "AMZN", "MSFT", "NVDA", "TSLA"]
+    # Scrape the symbols
+    symbols = ["AAPL", "GOOG", "AMZN", "MSFT", "NVDA", "TSLA"]
     for symbol in symbols:
         params = {
             "access_key": marketstack_api_key,
@@ -100,6 +82,7 @@ if __name__ == "__main__":
             "date_from": date_from,
             "date_to": date_to,
             "limit": 3000,
+            "sort": "ASC",
         }
         all_data = fetch_all_results(base_url, params)
         print(f"Fetched {len(all_data)} records")
