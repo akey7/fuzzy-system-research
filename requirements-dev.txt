@@ -1,0 +1,6 @@
+# Dependencies unique to development
+-r requirements.txt
+pytest
+black
+flake8
+sphinx

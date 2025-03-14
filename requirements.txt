@@ -1,0 +1,5 @@
+# Dependencies for development and production
+numpy
+pandas
+requests
+python-dotenv
