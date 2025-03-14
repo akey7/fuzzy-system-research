@@ -4,3 +4,6 @@ pandas
 requests
 python-dotenv
 jupyterlab
+plotly
+notebook
+ipywidgets
