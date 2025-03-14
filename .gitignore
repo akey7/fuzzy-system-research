@@ -172,3 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Ignore macOS junk
+.DS_Store
+
+# Ignore input and output data
+input/
+output/
