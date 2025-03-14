@@ -8,3 +8,4 @@ plotly
 notebook
 ipywidgets
 numpy
+polygon-api-client
