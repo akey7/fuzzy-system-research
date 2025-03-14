@@ -36,6 +36,10 @@ def make_long_df():
                         "adj_high": day["adj_high"],
                         "adj_low": day["adj_low"],
                         "adj_close": day["adj_close"],
+                        "open": day["open"],
+                        "high": day["high"],
+                        "low": day["low"],
+                        "close": day["close"],
                     }
                 )
     df = pd.DataFrame(rows)
@@ -60,6 +64,23 @@ def make_adj_close_df(df_long):
     df_wide.to_csv(df_wide_filename, index=True)
 
 
+def make_close_df(df_long):
+    """
+    Save a wide dataframe with date as the index and columns of adj_close
+    prices.
+
+    Parameters
+    ----------
+    df_long : pd.DataFrame
+        Long dataframe output from make_long_df()
+    """
+    df_wide = df_long.pivot(index="date", columns="symbol", values="close")
+    df_wide.reset_index(names='date')
+    df_wide_filename = os.path.join("output", "stocks_close.csv")
+    df_wide.to_csv(df_wide_filename, index=True)
+
+
 if __name__ == "__main__":
     df_long = make_long_df()
     make_adj_close_df(df_long)
+    make_close_df(df_long)
