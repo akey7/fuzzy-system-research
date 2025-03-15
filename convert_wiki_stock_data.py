@@ -14,4 +14,4 @@ print(data_store_filename)
 df = pd.read_csv(wiki_prices_filename)
 print(df.info(show_counts=True))
 with pd.HDFStore(data_store_filename) as store:
-    store.put("quandl/wiki/stocks", df)
+    store.put("quandl/wiki/prices", df)
