@@ -26,8 +26,8 @@ def main():
             ticker=ticker,
             multiplier=1,
             timespan="day",
-            from_="2022-06-01",
-            to="2022-06-10",
+            from_=date_from,
+            to=date_to,
             adjusted="true",
         ):
             rows.append({
