@@ -42,7 +42,7 @@ def main():
                 "vwap": a.vwap,
                 "transactions": a.transactions,
             })
-        print(f"Acquired {len(rows)} so far. Sleeping 5 seconds...")
+        print(f"{ticker}. Acquired {len(rows)} so far. Sleeping 5 seconds...")
         time.sleep(5)
 
     # Return DataFrame
