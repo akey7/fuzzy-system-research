@@ -10,3 +10,4 @@ ipywidgets
 numpy
 polygon-api-client
 statsmodels
+tables
