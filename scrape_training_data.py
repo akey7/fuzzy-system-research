@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from polygon import RESTClient
 import pandas as pd
+import time
 
 
 def main():
@@ -41,11 +42,14 @@ def main():
                 "vwap": a.vwap,
                 "transactions": a.transactions,
             })
+        print(f"Acquired {len(rows)} so far. Sleeping 5 seconds...")
+        time.sleep(5)
 
     # Return DataFrame
     ticker_histories = pd.DataFrame(rows)
     ticker_histories_filename = os.path.join("input", "ticker_histories.csv")
     ticker_histories.to_csv(ticker_histories_filename, index=False)
+    print(f"Wrote {ticker_histories_filename}")
 
 
 if __name__ == "__main__":
