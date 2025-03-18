@@ -13,3 +13,4 @@ statsmodels
 tables
 pandas_datareader
 matplotlib
+scikit-learn
