@@ -12,3 +12,4 @@ polygon-api-client
 statsmodels
 tables
 pandas_datareader
+matplotlib
