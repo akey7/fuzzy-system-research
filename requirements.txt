@@ -14,3 +14,4 @@ tables
 pandas_datareader
 matplotlib
 scikit-learn
+seaborn
