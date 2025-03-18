@@ -11,3 +11,4 @@ numpy
 polygon-api-client
 statsmodels
 tables
+pandas_datareader
