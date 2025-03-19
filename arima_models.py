@@ -115,23 +115,24 @@ def best_arima_model(ts, train_result):
     return best_arima_model
 
 
-def plot_correlogram(x, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
-    q_p = np.max(q_stat(acf(x, nlags=nlags), len(x))[1])
-    stats = f"Q-Stat: {np.max(q_p):>8.2f}\nADF: {adfuller(x)[1]:>11.2f}"
-    mean, var, skew, kurtosis = moment(x, moment=[1, 2, 3, 4])
+def plot_correlogram(ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
+    ts = ts0.dropna()
+    q_p = np.max(q_stat(acf(ts, nlags=nlags), len(ts))[1])
+    stats = f"Q-Stat: {np.max(q_p):>8.2f}\nADF: {adfuller(ts)[1]:>11.2f}"
+    mean, var, skew, kurtosis = moment(ts, moment=[1, 2, 3, 4])
     qq_stats = f"Mean: {mean:>12.2f}\nSD: {np.sqrt(var):>16.2f}\nSkew: {skew:12.2f}\nKurtosis:{kurtosis:9.2f}"
     fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(14, 8))
-    axs[0][0].plot(x)
-    axs[0][0].plot(x.rolling(residual_rolling).mean(), color="black")
+    axs[0][0].plot(ts)
+    axs[0][0].plot(ts.rolling(residual_rolling).mean(), color="black")
     axs[0][0].text(x=0.02, y=0.85, s=stats, transform=axs[0][0].transAxes)
     axs[0][0].set_title(f"Residuals and {residual_rolling}-day rolling mean")
-    probplot(x, plot=axs[0][1])
+    probplot(ts, plot=axs[0][1])
     axs[0][1].text(x=0.02, y=0.75, s=qq_stats, transform=axs[0][1].transAxes)
     axs[0][1].set_title("Q-Q")
-    plot_acf(x, lags=nlags, zero=False, ax=axs[1][0])
+    plot_acf(ts, lags=nlags, zero=False, ax=axs[1][0])
     axs[1][0].set_xlabel("Lag")
     axs[1][0].set_ylim(-acf_plot_ymax, acf_plot_ymax)
-    plot_pacf(x, lags=nlags, zero=False, ax=axs[1][1])
+    plot_pacf(ts, lags=nlags, zero=False, ax=axs[1][1])
     axs[1][1].set_xlabel("Lag")
     axs[1][1].set_ylim(-acf_plot_ymax, acf_plot_ymax)
     fig.suptitle(f"{title}")
