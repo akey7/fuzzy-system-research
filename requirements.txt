@@ -16,3 +16,4 @@ matplotlib
 scikit-learn
 seaborn
 tqdm
+dask
