@@ -106,7 +106,6 @@ def train_arima_viz(train_result):
     axes[0].set_title("Root Mean Squared Error")
     axes[1].set_title("Mean Bayesian Information Criterion")
     fig.tight_layout()
-    return fig
 
 
 def best_arima_model(ts, train_result):
