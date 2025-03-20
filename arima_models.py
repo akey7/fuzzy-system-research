@@ -15,6 +15,15 @@ import seaborn as sns
 
 class ArimaModels:
     def __init__(self, n_workers=6):
+        """
+        Initialize a new ArimaModels instance.
+
+        Parameters
+        ----------
+        n_workers : int, optional
+            Number of workers to allocate to fitting ARIMA models.
+            Optional and defaults to 6.
+        """
         self.n_workers = n_workers
         self.train_result = None
         self.final_model = None
@@ -204,7 +213,7 @@ class ArimaModels:
         best_arima_model = tsa.ARIMA(endog=ts, order=(best_p, 0, best_q)).fit()
         return best_arima_model
 
-    def predict_1_step(self, orginal_ts, best_arima_model):
+    def predict(self, orginal_ts):
         """
         Predict the next time step beyond the training of the model.
         Return the prediction in units of the original time series.
@@ -214,14 +223,11 @@ class ArimaModels:
         original_ts : pd.Series
             Original time series, neither transformed nor differenced
 
-        best_arima_model : ARIMA
-            The best trained ARIMA model as returned from best_arima_model.
-
         Returns
         -------
         np.float64
             The next value in the time series.
         """
-        forecast = best_arima_model.forecast(steps=1)
+        forecast = self.final_model.forecast(steps=1)
         pred = orginal_ts.iloc[-1] * np.exp(forecast.iloc[0])
         return pred
