@@ -15,11 +15,44 @@ import seaborn as sns
 
 class ArimaModels:
     def __init__(self, n_workers=6):
-        self.train_result = None
         self.n_workers = n_workers
+        self.train_result = None
+        self.final_model = None
 
-    def fit(original_ts, max_p=5, d=0, max_q=5, train_len=120):
-        pass
+    def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
+        """
+        Fit many ARIMA models to find the best p and q values.
+        Fitting is parrallelized across the number of workers specified
+        by n_workers specified during instantation. The original time
+        series is log-transformed and differenced with a lag of 1
+        before fitting the models. max_p, max_q, and train_len
+        are passed to the other fitting functions as appropriate. This
+        function does not return a value; rather, it sets instance
+        attributes with the results of the operations.
+
+        Parameters
+        ----------
+        original_ts : pd.Series
+            The original time series.
+
+        max_p : int, optional
+            The maximum number of lagged values to test. Defaults to 5.
+
+        max_q : int, optional
+            The maximum number of lagged disturbances to test. Defaults to 5.
+
+        train_len : int, optional
+            Then length of the training set. Defaults to 120.
+
+        Returns
+        -------
+        None
+        """
+        ts = self.log_diff_prep(original_ts)
+        self.train_result = self.train_arima(
+            ts, max_p=max_p, max_q=max_q, train_len=train_len, d=0
+        )
+        self.final_model = self.best_arima_model(ts, self.train_result)
 
     def log_diff_prep(self, original_ts):
         """
