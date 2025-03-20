@@ -13,6 +13,25 @@ from sklearn.metrics import mean_squared_error
 import seaborn as sns
 
 
+def log_diff_prep(original_ts):
+    """
+    Prepare a time series for modeling by log transforming and
+    differencing. The date time index is passed through
+    unaffected.
+
+    Parameters
+    ----------
+    original_ts : pd.Series
+        The original time series to be transformed.
+
+    Returns
+    -------
+    pd.Series
+        The transformed time series.
+    """
+    return np.log(original_ts).diff()
+
+
 def train_arima(ts, max_p=5, d=0, max_q=5, train_len=120, n_workers=6):
     """
     Initiate training runs of ARIMA models with ps and qs under the
@@ -22,8 +41,9 @@ def train_arima(ts, max_p=5, d=0, max_q=5, train_len=120, n_workers=6):
     Parameters
     ----------
     ts : pd.Series
-        The time series to be modeled
-    
+        The time series to be modeled. The raw data should be transformed
+        by log_diff_prep() first.
+
     max_p : int, optional
         The maximum number of lagged values to test. Defaults to 5.
 
@@ -74,7 +94,7 @@ def p_d_q_fit(task):
     """
     Train and evaluate an ARIMA model with the given p, d, and q parameters
     in the task dictionary.
-    
+
     Meant to be used by the train_arima function to perform parrallizable
     tasks on cores.
 
@@ -181,7 +201,7 @@ def best_arima_model(ts, train_result):
 def plot_correlogram(ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
     """
     In a Jupyter notebook, display the correlogram with ACF, PACF, and residuals QQ
-    plot and time series. Also displays Q and ADF stats and the moments of the 
+    plot and time series. Also displays Q and ADF stats and the moments of the
     residual distribution. This can assist with determining proper p and q ranges to
     try and/or looking at the quality of the best fit model.
 
@@ -222,3 +242,26 @@ def plot_correlogram(ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
     axs[1][1].set_ylim(-acf_plot_ymax, acf_plot_ymax)
     fig.suptitle(f"{title}")
     fig.tight_layout()
+
+
+def predict_1_step(orginal_ts, best_arima_model):
+    """
+    Predict the next time step beyond the training of the model.
+    Return the prediction in units of the original time series.
+
+    Parameters
+    ----------
+    original_ts : pd.Series
+        Original time series, neither transformed nor differenced
+
+    best_arima_model : ARIMA
+        The best trained ARIMA model as returned from best_arima_model.
+
+    Returns
+    -------
+    np.float64
+        The next value in the time series.
+    """
+    forecast = best_arima_model.forecast(steps=1)
+    pred = orginal_ts.iloc[-1] * np.exp(forecast.iloc[0])
+    return pred
