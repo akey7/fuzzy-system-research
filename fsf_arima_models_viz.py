@@ -122,7 +122,7 @@ class ArimaModelsViz:
         axs[0].text(x=0.02, y=0.85, s=stats, transform=axs[0].transAxes)
         axs[0].set_title(f"Residuals and {residual_rolling}-day rolling mean")
         probplot(ts, plot=axs[1])
-        axs[1].text(x=0.02, y=0.75, s=qq_stats, transform=axs[0][1].transAxes)
+        axs[1].text(x=0.02, y=0.75, s=qq_stats, transform=axs[1].transAxes)
         axs[1].set_title("Q-Q")
         fig.suptitle(f"{title}")
         fig.tight_layout()
