@@ -39,7 +39,6 @@ class ArimaModels:
         """
         return np.log(original_ts).diff()
 
-
     def train_arima(self, ts, max_p=5, d=0, max_q=5, train_len=120, n_workers=6):
         """
         Initiate training runs of ARIMA models with ps and qs under the
@@ -86,7 +85,7 @@ class ArimaModels:
                     }
                 )
         dask_client = Client(n_workers=n_workers)
-        futures = [dask_client.submit(p_d_q_fit, task) for task in tasks]
+        futures = [dask_client.submit(self.p_d_q_fit, task) for task in tasks]
         arima_fit_results = []
         for future in tqdm(
             as_completed(futures), total=len(futures), desc="Processing", unit="task"
@@ -96,7 +95,6 @@ class ArimaModels:
         arima_fit_df = pd.DataFrame(arima_fit_results)
         arima_fit_df.set_index(["p", "q"], inplace=True)
         return arima_fit_df
-
 
     def p_d_q_fit(self, task):
         """
@@ -159,18 +157,20 @@ class ArimaModels:
             "n_stationarity_errors": n_stationarity_errors,
         }
         return result
-    
+
     def best_arima_model(self, ts, train_result):
         """
         Use training results from train_arima and make a final ARIMA
         model that has the best p and q values, as determined by their
         RMSE and BIC metrics.
         """
-        best_p, best_q = train_result.rank().loc[:, ["rmse", "mean_bic"]].mean(1).idxmin()
+        best_p, best_q = (
+            train_result.rank().loc[:, ["rmse", "mean_bic"]].mean(1).idxmin()
+        )
         print(best_p, best_q)
         best_arima_model = tsa.ARIMA(endog=ts, order=(best_p, 0, best_q)).fit()
         return best_arima_model
-    
+
     def predict_1_step(self, orginal_ts, best_arima_model):
         """
         Predict the next time step beyond the training of the model.
@@ -192,82 +192,3 @@ class ArimaModels:
         forecast = best_arima_model.forecast(steps=1)
         pred = orginal_ts.iloc[-1] * np.exp(forecast.iloc[0])
         return pred
-
-
-def train_arima_viz(train_result):
-    """
-    In a Jupyter notebook, display heatmaps of p and q parameters and their
-    RMSE and BIC values to visualize which models did best.
-
-    Parameters
-    ----------
-    train_result : pd.DataFrame
-        The results of training a bunch of ARIMA models as returned by
-        train_arima.
-    """
-    fig, axes = plt.subplots(ncols=2, figsize=(10, 4), sharex=True, sharey=True)
-    sns.heatmap(
-        train_result[train_result.rmse < 0.5].rmse.unstack().mul(10),
-        fmt=".3f",
-        annot=True,
-        cmap="Blues",
-        ax=axes[0],
-        cbar=False,
-    )
-    sns.heatmap(
-        train_result.mean_bic.unstack(),
-        fmt=".2f",
-        annot=True,
-        cmap="Blues",
-        ax=axes[1],
-        cbar=False,
-    )
-    axes[0].set_title("Root Mean Squared Error")
-    axes[1].set_title("Mean Bayesian Information Criterion")
-    fig.tight_layout()
-
-
-def plot_correlogram(ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
-    """
-    In a Jupyter notebook, display the correlogram with ACF, PACF, and residuals QQ
-    plot and time series. Also displays Q and ADF stats and the moments of the
-    residual distribution. This can assist with determining proper p and q ranges to
-    try and/or looking at the quality of the best fit model.
-
-    Parameters
-    ----------
-    ts0
-        Time series to be plotted.
-
-    nlags : int
-        Number of lags in the ACF and PACF diagrams.
-
-    residual_rolling : int, optional
-        The window for the rolling average in the residual plot.
-        Defaults to 21
-
-    acf_plot_ymax : float, optional
-        The y limits on the ACF and PACF plots will match the
-        magnitude of this value. Should be > 0.0. Defaults to 0.1
-    """
-    ts = ts0.dropna()
-    q_p = np.max(q_stat(acf(ts, nlags=nlags), len(ts))[1])
-    stats = f"Q-Stat: {np.max(q_p):>8.2f}\nADF: {adfuller(ts)[1]:>11.2f}"
-    mean, var, skew, kurtosis = moment(ts, moment=[1, 2, 3, 4])
-    qq_stats = f"Mean: {mean:>12.2f}\nSD: {np.sqrt(var):>16.2f}\nSkew: {skew:12.2f}\nKurtosis:{kurtosis:9.2f}"
-    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(14, 8))
-    axs[0][0].plot(ts)
-    axs[0][0].plot(ts.rolling(residual_rolling).mean(), color="black")
-    axs[0][0].text(x=0.02, y=0.85, s=stats, transform=axs[0][0].transAxes)
-    axs[0][0].set_title(f"Residuals and {residual_rolling}-day rolling mean")
-    probplot(ts, plot=axs[0][1])
-    axs[0][1].text(x=0.02, y=0.75, s=qq_stats, transform=axs[0][1].transAxes)
-    axs[0][1].set_title("Q-Q")
-    plot_acf(ts, lags=nlags, zero=False, ax=axs[1][0])
-    axs[1][0].set_xlabel("Lag")
-    axs[1][0].set_ylim(-acf_plot_ymax, acf_plot_ymax)
-    plot_pacf(ts, lags=nlags, zero=False, ax=axs[1][1])
-    axs[1][1].set_xlabel("Lag")
-    axs[1][1].set_ylim(-acf_plot_ymax, acf_plot_ymax)
-    fig.suptitle(f"{title}")
-    fig.tight_layout()
