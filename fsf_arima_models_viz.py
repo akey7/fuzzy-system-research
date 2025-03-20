@@ -91,3 +91,38 @@ class ArimaModelsViz:
         axs[1][1].set_ylim(-acf_plot_ymax, acf_plot_ymax)
         fig.suptitle(f"{title}")
         fig.tight_layout()
+
+    def plot_model_residuals(self, arima_models_instance, title, n_lags, residual_rolling=21):
+        """
+        Plot the residuals of the best fit ARIMA model from the given 
+        instance. Like plot_log_diff_correlogram, but just prints the
+        residuals time series and QQ plot without log transforming
+        and differencing.
+
+        Parameters
+        ----------
+        arima_models_instance : ArimaModels
+            The instance of ArimaModels to plot which has had fit()
+            successfully executed first.
+        
+        n_lags : int
+            Number of lags for the Q statistic.
+
+        residual_rolling : int
+            The length of the rolling average for the residuals plot.
+        """
+        ts = arima_models_instance.final_model.resid.dropna()
+        q_p = np.max(q_stat(acf(ts, nlags=n_lags), len(ts))[1])
+        stats = f"Q-Stat: {np.max(q_p):>8.2f}\nADF: {adfuller(ts)[1]:>11.2f}"
+        mean, var, skew, kurtosis = moment(ts, moment=[1, 2, 3, 4])
+        qq_stats = f"Mean: {mean:>12.2f}\nSD: {np.sqrt(var):>16.2f}\nSkew: {skew:12.2f}\nKurtosis:{kurtosis:9.2f}"
+        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(8, 8))
+        axs[0].plot(ts)
+        axs[0].plot(ts.rolling(residual_rolling).mean(), color="black")
+        axs[0].text(x=0.02, y=0.85, s=stats, transform=axs[0].transAxes)
+        axs[0].set_title(f"Residuals and {residual_rolling}-day rolling mean")
+        probplot(ts, plot=axs[1])
+        axs[1].text(x=0.02, y=0.75, s=qq_stats, transform=axs[0][1].transAxes)
+        axs[1].set_title("Q-Q")
+        fig.suptitle(f"{title}")
+        fig.tight_layout()
