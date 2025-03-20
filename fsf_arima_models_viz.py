@@ -14,17 +14,17 @@ import seaborn as sns
 
 
 class ArimaModelsViz:
-    def train_arima_viz(self, train_result):
+    def train_arima_viz(self, arima_models_instance):
         """
         In a Jupyter notebook, display heatmaps of p and q parameters and their
         RMSE and BIC values to visualize which models did best.
 
         Parameters
         ----------
-        train_result : pd.DataFrame
-            The results of training a bunch of ARIMA models as returned by
-            train_arima.
+        arima_models_instance : ArimaModels
+            The ArimaModels instance that contains the training results.
         """
+        train_result = arima_models_instance.train_result
         fig, axes = plt.subplots(ncols=2, figsize=(10, 4), sharex=True, sharey=True)
         sns.heatmap(
             train_result[train_result.rmse < 0.5].rmse.unstack().mul(10),
