@@ -46,7 +46,9 @@ class ArimaModelsViz:
         axes[1].set_title("Mean Bayesian Information Criterion")
         fig.tight_layout()
 
-    def plot_log_diff_correlogram(self, ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
+    def plot_log_diff_correlogram(
+        self, ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1
+    ):
         """
         In a Jupyter notebook, display the correlogram with ACF, PACF, and residuals QQ
         plot and time series. Also displays Q and ADF stats and the moments of the
@@ -92,9 +94,11 @@ class ArimaModelsViz:
         fig.suptitle(f"{title}")
         fig.tight_layout()
 
-    def plot_model_residuals(self, arima_models_instance, title, n_lags, residual_rolling=21):
+    def plot_model_residuals(
+        self, arima_models_instance, title, n_lags, residual_rolling=21
+    ):
         """
-        Plot the residuals of the best fit ARIMA model from the given 
+        Plot the residuals of the best fit ARIMA model from the given
         instance. Like plot_log_diff_correlogram, but just prints the
         residuals time series and QQ plot without log transforming
         and differencing.
@@ -104,7 +108,7 @@ class ArimaModelsViz:
         arima_models_instance : ArimaModels
             The instance of ArimaModels to plot which has had fit()
             successfully executed first.
-        
+
         n_lags : int
             Number of lags for the Q statistic.
 
