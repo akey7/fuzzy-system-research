@@ -116,7 +116,7 @@ class ArimaModelsViz:
         stats = f"Q-Stat: {np.max(q_p):>8.2f}\nADF: {adfuller(ts)[1]:>11.2f}"
         mean, var, skew, kurtosis = moment(ts, moment=[1, 2, 3, 4])
         qq_stats = f"Mean: {mean:>12.2f}\nSD: {np.sqrt(var):>16.2f}\nSkew: {skew:12.2f}\nKurtosis:{kurtosis:9.2f}"
-        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(8, 8))
+        fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(8, 8))
         axs[0].plot(ts)
         axs[0].plot(ts.rolling(residual_rolling).mean(), color="black")
         axs[0].text(x=0.02, y=0.85, s=stats, transform=axs[0].transAxes)
