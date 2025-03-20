@@ -14,7 +14,7 @@ import seaborn as sns
 
 
 class ArimaModelsViz:
-    def train_arima_viz(train_result):
+    def train_arima_viz(self, train_result):
         """
         In a Jupyter notebook, display heatmaps of p and q parameters and their
         RMSE and BIC values to visualize which models did best.
@@ -46,7 +46,7 @@ class ArimaModelsViz:
         axes[1].set_title("Mean Bayesian Information Criterion")
         fig.tight_layout()
 
-    def plot_correlogram(ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
+    def plot_log_diff_correlogram(self, ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
         """
         In a Jupyter notebook, display the correlogram with ACF, PACF, and residuals QQ
         plot and time series. Also displays Q and ADF stats and the moments of the
@@ -56,7 +56,8 @@ class ArimaModelsViz:
         Parameters
         ----------
         ts0
-            Time series to be plotted.
+            Time series to be plotted. This is log transformed and differenced
+            with a lag of 1 before plotting.
 
         nlags : int
             Number of lags in the ACF and PACF diagrams.
@@ -69,7 +70,7 @@ class ArimaModelsViz:
             The y limits on the ACF and PACF plots will match the
             magnitude of this value. Should be > 0.0. Defaults to 0.1
         """
-        ts = ts0.dropna()
+        ts = np.log(ts0).diff().dropna()
         q_p = np.max(q_stat(acf(ts, nlags=nlags), len(ts))[1])
         stats = f"Q-Stat: {np.max(q_p):>8.2f}\nADF: {adfuller(ts)[1]:>11.2f}"
         mean, var, skew, kurtosis = moment(ts, moment=[1, 2, 3, 4])
