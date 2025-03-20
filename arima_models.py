@@ -16,7 +16,7 @@ import seaborn as sns
 def log_diff_prep(original_ts):
     """
     Prepare a time series for modeling by log transforming and
-    differencing. The date time index is passed through 
+    differencing. The date time index is passed through
     unaffected.
 
     Parameters
@@ -242,3 +242,26 @@ def plot_correlogram(ts0, nlags, title, residual_rolling=21, acf_plot_ymax=0.1):
     axs[1][1].set_ylim(-acf_plot_ymax, acf_plot_ymax)
     fig.suptitle(f"{title}")
     fig.tight_layout()
+
+
+def predict_1_step(orginal_ts, best_arima_model):
+    """
+    Predict the next time step beyond the training of the model.
+    Return the prediction in units of the original time series.
+
+    Parameters
+    ----------
+    original_ts : pd.Series
+        Original time series, neither transformed nor differenced
+
+    best_arima_model : ARIMA
+        The best trained ARIMA model as returned from best_arima_model.
+
+    Returns
+    -------
+    np.float64
+        The next value in the time series.
+    """
+    forecast = best_arima_model.forecast(steps=1)
+    pred = orginal_ts.iloc[-1] * np.exp(forecast.iloc[0])
+    return pred
