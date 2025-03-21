@@ -16,8 +16,8 @@ def main():
     client = RESTClient(polygon_io_api_key)
 
     # Date range
-    date_from = "2020-04-01"
-    date_to = "2025-03-13"
+    date_from = "2025-01-23"
+    date_to = "2025-03-20"
 
     # List Aggregates (Bars)
     tickers = ["AMZN", "GOOG", "MSFT", "AAPL", "NVDA", "TSLA"]
@@ -47,7 +47,7 @@ def main():
 
     # Return DataFrame
     ticker_histories = pd.DataFrame(rows)
-    ticker_histories_filename = os.path.join("input", "ticker_histories.csv")
+    ticker_histories_filename = os.path.join("input", f"Ticker Histories {date_from} to {date_to}.csv")
     ticker_histories.to_csv(ticker_histories_filename, index=False)
     print(f"Wrote {ticker_histories_filename}")
 
