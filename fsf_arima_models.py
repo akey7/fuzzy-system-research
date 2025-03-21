@@ -2,15 +2,11 @@ import warnings
 from dask.distributed import Client, as_completed
 from tqdm import tqdm
 import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar
 import numpy as np
 from numpy.linalg import LinAlgError
-import matplotlib.pyplot as plt
 import statsmodels.tsa.api as tsa
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.stattools import acf, q_stat, adfuller
-from scipy.stats import probplot, moment
 from sklearn.metrics import mean_squared_error
-import seaborn as sns
 
 
 class ArimaModels:
@@ -28,6 +24,31 @@ class ArimaModels:
         self.train_result = None
         self.final_model = None
 
+    def next_business_day_skip_holidays(self, date):
+        """
+        Finds the next business day, skipping US federal holidays.
+
+        Parameters
+        ----------
+        date : pd.Timestamp
+            The starting date.
+
+        Returns
+        -------
+        pd.Timestamp
+            The next business day, skipping holidays.
+        """
+
+        cal = USFederalHolidayCalendar()
+        holidays = cal.holidays(start=date, end=date + pd.Timedelta(days=365))
+
+        next_day = date + pd.Timedelta(days=1)
+        while True:
+            if next_day.weekday() >= 5 or next_day in holidays:
+                next_day += pd.Timedelta(days=1)
+            else:
+                return next_day
+
     def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
         """
         Fit many ARIMA models to find the best p and q values.
@@ -38,6 +59,9 @@ class ArimaModels:
         are passed to the other fitting functions as appropriate. This
         function does not return a value; rather, it sets instance
         attributes with the results of the operations.
+
+        This assumes the frequency of the index is "B" and will
+        predict the next business day at each training.
 
         Parameters
         ----------
@@ -62,6 +86,9 @@ class ArimaModels:
             ts, max_p=max_p, max_q=max_q, train_len=train_len, d=0
         )
         self.final_model = self.best_arima_model(ts, self.train_result)
+        pred_date = self.next_business_day_skip_holidays(ts.index[-1])
+        pred = self.final_model.forecast(steps=1)
+        return pred_date, pred
 
     def log_diff_prep(self, original_ts):
         """
