@@ -87,7 +87,7 @@ class ArimaModels:
         )
         self.final_model = self.best_arima_model(ts, self.train_result)
         pred_date = self.next_business_day_skip_holidays(ts.index[-1])
-        pred = self.final_model.forecast(steps=1)
+        pred = self.predict(original_ts)
         return pred_date, pred
 
     def log_diff_prep(self, original_ts):
