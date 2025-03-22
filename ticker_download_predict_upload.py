@@ -306,7 +306,10 @@ class DownloadPredictUpload:
     def run(self):
         """
         Download ticker data from Polygon (if needed), process it, and
-        upload it to HuggingFace for the front end.
+        upload it to HuggingFace for the front end. Manage caches of
+        stock tickers (so that the Polygon API is not accessed unnecessarily)
+        and predictions (so that a long running process is not run
+        unecessarily).
         """
         tickers = ["AAPL", "AMZN", "GOOG", "MSFT", "NVDA", "TSLA"]
         long_df_filename = os.path.join("input", f"Tickers {self.get_today_date()}.csv")
@@ -330,6 +333,8 @@ class DownloadPredictUpload:
             all_forecasts_df = self.train_arma_models(wide_df)
             all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
         print(all_forecasts_df.head())
+        ds = Dataset.from_pandas(all_forecasts_df)
+        ds.push_to_hub("akey7/fsf-ticker-preds-vs-actuals")
 
 
 if __name__ == "__main__":
