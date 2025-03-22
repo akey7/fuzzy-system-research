@@ -321,11 +321,14 @@ class DownloadPredictUpload:
             long_df = self.get_tickers(tickers, date_from=date_from, date_to=date_to)
             long_df.to_csv(long_df_filename, index=True)
         wide_df = self.pivot_ticker_close_wide(long_df)
-        all_forecasts_df = self.train_arma_models(wide_df)
         all_forecasts_df_filename = os.path.join(
             "output", f"All Forecasts {self.get_today_date()}.csv"
         )
-        all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
+        if os.path.exists(all_forecasts_df_filename):
+            all_forecasts_df = pd.read_csv(all_forecasts_df_filename)
+        else:
+            all_forecasts_df = self.train_arma_models(wide_df)
+            all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
         print(all_forecasts_df.head())
 
 
