@@ -42,7 +42,7 @@ class DownloadPredictUpload:
             The calculated past business date.
         """
         return reference_date - (self.cbd * business_days_past)
-    
+
     def future_business_day(self, reference_date, business_days_ahead):
         """
         Calculates the business date a specified number of business days in the future,
@@ -62,7 +62,7 @@ class DownloadPredictUpload:
             The calculated future business date.
         """
         return reference_date + (self.cbd * business_days_ahead)
-    
+
     def create_business_day_range(self, reference_date, num_days):
         """
         Creates a range of business days starting from a given date,
@@ -82,3 +82,37 @@ class DownloadPredictUpload:
             A DatetimeIndex containing the range of business days.
         """
         return pd.date_range(start=reference_date, periods=num_days, freq=self.cbd)
+
+    def training_window_start_end(self, start_timestamp, num_days=20):
+        """
+        Return a list of lists, with each inner list containing two pd.Timestamps.
+        The first timestamp is the start of a business day, and the second timestamp
+        is the end of a business day. These ranges are used to specify intervals
+        to train ARIMA models on.
+
+        Parameters
+        ----------
+        start_timestamp : pd.Timestamp
+            Start day of range.
+
+        num_days : int, optional
+            Number of days in the specified range. If not specified, defaults
+            to 20 business days.
+
+        Returns
+        -------
+        List[List[pd.Timestamp, pd.Timestamp]]
+            Returns timestamp ranges.
+        """
+        start_timestamps = self.create_business_day_range(
+            pd.Timestamp(start_timestamp), num_days
+        )
+        timestamp_ranges = []
+        for start_timestamp in start_timestamps:
+            end_timestamp = self.future_business_day(start_timestamp, num_days).replace(
+                hour=23, minute=59, second=59
+            )
+            timestamp_ranges.append([start_timestamp, end_timestamp])
+        for timestamp_range in timestamp_ranges:
+            print(timestamp_range)
+        return timestamp_ranges
