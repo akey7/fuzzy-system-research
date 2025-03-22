@@ -245,7 +245,7 @@ class DownloadPredictUpload:
             The forecasts after each model training.
         """
         all_forecast_dfs = []
-        timestamp_ranges = self.create_business_day_range(
+        timestamp_ranges = self.training_window_start_end(
             df.index[0],
             n_business_days,
         )
