@@ -1,0 +1,7 @@
+# Dependencies unique to development
+-r requirements.txt
+pytest
+black
+black[jupyter]
+flake8
+sphinx

@@ -1,0 +1,23 @@
+# Dependencies for development and production
+numpy
+pandas
+requests
+python-dotenv
+jupyterlab
+plotly
+notebook
+ipywidgets
+numpy
+polygon-api-client
+statsmodels
+tables
+pandas_datareader
+matplotlib
+scikit-learn
+seaborn
+tqdm
+dask
+dask[distributed]
+huggingface_hub
+datasets
+python-dotenv
