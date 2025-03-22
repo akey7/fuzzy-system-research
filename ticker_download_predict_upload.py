@@ -219,6 +219,9 @@ class DownloadPredictUpload:
         walk-forward backtesting scheme of model evaluation. Each training
         seeks the optimal (p, q) values for the best performance.
 
+        Though not in this function, the time series are log transformed and
+        differenced with a lag of 1 prior to training.
+
         Parameters
         ----------
         df : pd.DataFrame
