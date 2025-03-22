@@ -1,11 +1,11 @@
 import os
 import time
+from datetime import datetime
 import pandas as pd
-import numpy as np
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from fsf_arima_models import ArimaModels
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.metrics import mean_absolute_error
 from huggingface_hub import login
 from datasets import Dataset
 from polygon import RESTClient
@@ -208,7 +208,6 @@ class DownloadPredictUpload:
     def train_arma_models(
         self,
         df,
-        business_days_in_past_start=None,
         n_business_days=20,
         max_p=2,
         max_q=2,
@@ -226,10 +225,6 @@ class DownloadPredictUpload:
         ----------
         df : pd.DataFrame
             Wide format DataFrame of adjusted close data.
-
-        business_days_in_past_start : pd.Timestamp, optional
-            How many days in the past to start the prediction windows. If left
-            as None, will default to 40 days prior to today's date.
 
         n_business_days : int, optional
             Number of days in each training window. Default is 20, which is a
@@ -250,7 +245,10 @@ class DownloadPredictUpload:
             The forecasts after each model training.
         """
         all_forecast_dfs = []
-        timestamp_ranges = None
+        timestamp_ranges = self.create_business_day_range(
+            df.index[0],
+            n_business_days,
+        )
         for ticker in df.columns:
             forecast_rows = []
             for start_timestamp, end_timestamp in timestamp_ranges:
@@ -277,7 +275,7 @@ class DownloadPredictUpload:
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1)
         return all_forecast_df
 
-    def forecast_maes(self, all_forecast_df):
+    def forecast_errors(self, all_forecast_df):
         """
         Returns a DataFrame of MAEs of forecast errors.
 
@@ -296,3 +294,33 @@ class DownloadPredictUpload:
             )
             rows.append({"ticker": ticker, "mae": mae})
         result_df = pd.DataFrame(rows).set_index("ticker")
+        return result_df
+
+    def get_today_date(self):
+        """
+        Return today's date as a YYYY-MM-DD string.
+        """
+        today = datetime.now()
+        return today.strftime("%Y-%m-%d")
+
+    def run(self):
+        """
+        Download ticker data from Polygon (if needed), process it, and
+        upload it to HuggingFace for the front end.
+        """
+        tickers = ["AAPL", "AMZN", "GOOG", "MSFT", "NVDA", "TSLA"]
+        long_df_filename = os.path.join("input", f"Tickers {self.get_today_date()}.csv")
+        date_from = self.past_business_day(pd.Timestamp(self.get_today_date()), 40)
+        date_to = self.past_business_day(pd.Timestamp(self.get_today_date()), 1).replace(hour=23, minute=59, second=59)
+        print(date_from, date_to)
+        if os.path.exists(long_df_filename):
+            long_df = pd.read_csv(long_df_filename)
+        else:
+            long_df = self.get_tickers(tickers, date_from=date_from, date_to=date_to)
+            long_df.to_csv(long_df_filename, index=True)
+        print(long_df.head())
+
+
+if __name__ == "__main__":
+    dpu = DownloadPredictUpload()
+    dpu.run()
