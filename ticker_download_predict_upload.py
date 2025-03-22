@@ -257,7 +257,9 @@ class DownloadPredictUpload:
                 am = ArimaModels(n_workers=n_workers)
                 ticker_ts = df[ticker]
                 ticker_ts = ticker_ts.loc[start_timestamp:end_timestamp]
-                pred_date, pred = am.fit(ticker_ts, max_p=max_p, max_q=max_q, train_len=10)
+                pred_date, pred = am.fit(
+                    ticker_ts, max_p=max_p, max_q=max_q, train_len=10
+                )
                 pred_key = f"{ticker}_pred"
                 pred_dict = {"pred_date": pred_date, pred_key: pred}
                 print(pred_dict)
@@ -274,3 +276,23 @@ class DownloadPredictUpload:
             all_forecast_dfs.append(forecast_df)
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1)
         return all_forecast_df
+
+    def forecast_maes(self, all_forecast_df):
+        """
+        Returns a DataFrame of MAEs of forecast errors.
+
+        Parameters
+        ----------
+        all_forecast_df : pd.DataFrame
+            Forecast and actual values.
+        """
+        rows = []
+        tickers = [
+            ticker for ticker in all_forecast_df.columns if "_pred" not in ticker
+        ]
+        for ticker in tickers:
+            mae = mean_absolute_error(
+                all_forecast_df[ticker][:-1], all_forecast_df[f"{ticker}_pred"][:-1]
+            )
+            rows.append({"ticker": ticker, "mae": mae})
+        result_df = pd.DataFrame(rows).set_index("ticker")
