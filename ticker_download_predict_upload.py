@@ -204,3 +204,70 @@ class DownloadPredictUpload:
         )
         wide_df.sort_index(inplace=True)
         return wide_df
+
+    def train_arma_models(
+        self,
+        df,
+        business_days_in_past_start=None,
+        n_business_days=20,
+        max_p=2,
+        max_q=2,
+        n_workers=6,
+    ):
+        """
+        Trains ARMA models along each training window implementing a
+        walk-forward backtesting scheme of model evaluation. Each training
+        seeks the optimal (p, q) values for the best performance.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Wide format DataFrame of adjusted close data.
+
+        business_days_in_past_start : pd.Timestamp, optional
+            How many days in the past to start the prediction windows. If left
+            as None, will default to 40 days prior to today's date.
+
+        n_business_days : int, optional
+            Number of days in each training window. Default is 20, which is a
+            month of business days.
+
+        max_p : int, optional
+            Max p of ARMA models. Defaults to 2.
+
+        max_q : int, optional
+            Max q of ARMA models. Defaults to 2.
+
+        n_workers : int, optional
+            Number of cores to dedicate to training models. Defaults to 6
+
+        Returns
+        -------
+        pd.DataFrame
+            The forecasts after each model training.
+        """
+        all_forecast_dfs = []
+        timestamp_ranges = None
+        for ticker in df.columns:
+            forecast_rows = []
+            for start_timestamp, end_timestamp in timestamp_ranges:
+                am = ArimaModels(n_workers=n_workers)
+                ticker_ts = df[ticker]
+                ticker_ts = ticker_ts.loc[start_timestamp:end_timestamp]
+                pred_date, pred = am.fit(ticker_ts, max_p=max_p, max_q=max_q, train_len=10)
+                pred_key = f"{ticker}_pred"
+                pred_dict = {"pred_date": pred_date, pred_key: pred}
+                print(pred_dict)
+                forecast_rows.append(pred_dict)
+            forecast_df = (
+                pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
+            )
+            forecast_start_timestamp = forecast_df.index[0]
+            forecast_end_timestamp = forecast_df.index[-1]
+            forecast_df[ticker] = df.loc[
+                forecast_start_timestamp:forecast_end_timestamp, ticker
+            ].copy()
+            print(forecast_df.head())
+            all_forecast_dfs.append(forecast_df)
+        all_forecast_df = pd.concat(all_forecast_dfs, axis=1)
+        return all_forecast_df
