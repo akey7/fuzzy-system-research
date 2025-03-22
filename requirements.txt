@@ -19,3 +19,4 @@ tqdm
 dask
 dask[distributed]
 huggingface_hub
+datasets
