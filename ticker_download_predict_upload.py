@@ -121,7 +121,7 @@ class DownloadPredictUpload:
         for timestamp_range in timestamp_ranges:
             print(timestamp_range)
         return timestamp_ranges
-    
+
     def get_tickers(self, tickers, date_from, date_to, delay=5):
         """
         Gets ticker data from Polygon.io between the given dates, inclusive
@@ -157,18 +157,24 @@ class DownloadPredictUpload:
                 to=date_to,
                 adjusted="true",
             ):
-                rows.append({
-                    "timestamp": a.timestamp,
-                    "ticker": ticker,
-                    "open": a.open,
-                    "high": a.high,
-                    "low": a.low,
-                    "close": a.close,
-                    "volume": a.volume,
-                    "vwap": a.vwap,
-                    "transactions": a.transactions,
-                })
+                rows.append(
+                    {
+                        "timestamp": a.timestamp,
+                        "ticker": ticker,
+                        "open": a.open,
+                        "high": a.high,
+                        "low": a.low,
+                        "close": a.close,
+                        "volume": a.volume,
+                        "vwap": a.vwap,
+                        "transactions": a.transactions,
+                    }
+                )
             print(f"{ticker}. Acquired {len(rows)} so far. Sleeping 5 seconds...")
             time.sleep(delay)
         df = pd.DataFrame(rows)
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms").dt.tz_localize(None)
+        df.set_index("datetime", inplace=True)
+        df.drop("timestamp", axis=1, inplace=True)
+        df.sort_index(inplace=True)
         return df
