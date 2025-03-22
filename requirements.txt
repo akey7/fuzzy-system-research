@@ -18,3 +18,4 @@ seaborn
 tqdm
 dask
 dask[distributed]
+huggingface_hub
