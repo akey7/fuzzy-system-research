@@ -1,4 +1,5 @@
 import os
+import time
 import pandas as pd
 import numpy as np
 from pandas.tseries.offsets import CustomBusinessDay
@@ -7,6 +8,7 @@ from fsf_arima_models import ArimaModels
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from huggingface_hub import login
 from datasets import Dataset
+from polygon import RESTClient
 from dotenv import load_dotenv
 
 
@@ -14,11 +16,14 @@ class DownloadPredictUpload:
     def __init__(self):
         """
         Instantiate the by preparing the custom business day that skips
-        holidays and logging into HuggingFace.
+        holidays, logging into HuggingFace, and getting a Client for
+        Polygon.io API (for ticker values).
         """
         load_dotenv()
         hf_token = os.getenv("HF_TOKEN")
         login(hf_token, add_to_git_credential=True)
+        polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
+        self.polygon_client = RESTClient(polygon_io_api_key)
         cal = USFederalHolidayCalendar()
         holidays = cal.holidays()
         self.cbd = CustomBusinessDay(holidays=holidays)
@@ -116,3 +121,54 @@ class DownloadPredictUpload:
         for timestamp_range in timestamp_ranges:
             print(timestamp_range)
         return timestamp_ranges
+    
+    def get_tickers(self, tickers, date_from, date_to, delay=5):
+        """
+        Gets ticker data from Polygon.io between the given dates, inclusive
+        of the ending date.
+
+        Parameters
+        ----------
+        tickers : List[str]
+            List of valid ticker symbols (like AAPL)
+
+        date_from : str
+            String representation of the start date in YYYY-MM-DD format.
+
+        date_to : str
+            String representation of the end date in YYYY-MM-DD format.
+
+        delay: int, optional
+            Seconds to wait between successive API calls for the tickers.
+            If not specifed defaults to 5 seconds.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame of ticker data in long format.
+        """
+        rows = []
+        for ticker in tickers:
+            for a in self.polygon_client.list_aggs(
+                ticker=ticker,
+                multiplier=1,
+                timespan="day",
+                from_=date_from,
+                to=date_to,
+                adjusted="true",
+            ):
+                rows.append({
+                    "timestamp": a.timestamp,
+                    "ticker": ticker,
+                    "open": a.open,
+                    "high": a.high,
+                    "low": a.low,
+                    "close": a.close,
+                    "volume": a.volume,
+                    "vwap": a.vwap,
+                    "transactions": a.transactions,
+                })
+            print(f"{ticker}. Acquired {len(rows)} so far. Sleeping 5 seconds...")
+            time.sleep(delay)
+        df = pd.DataFrame(rows)
+        return df
