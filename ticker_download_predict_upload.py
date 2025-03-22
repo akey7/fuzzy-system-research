@@ -178,3 +178,29 @@ class DownloadPredictUpload:
         df.drop("timestamp", axis=1, inplace=True)
         df.sort_index(inplace=True)
         return df
+
+    def pivot_ticker_close_wide(self, long_df):
+        """
+        Pivots the adjusted close values retrieved by get_tickers()
+        to a wide format suitable for modeling.
+
+        Parameters
+        ----------
+        long_df : pd.DataFrame
+            Long DataFrame of ticker data.
+
+        Returns
+        -------
+        pd.DataFrame
+            Wide dataframe with adjusted close prices of tickers in the columns
+            and a pd.DatetimeIndex suitable for indexing into ranges of dates.
+        """
+        wide_df = long_df.reset_index().pivot(
+            index="datetime", columns="ticker", values="close"
+        )
+        wide_df.index = pd.DatetimeIndex(wide_df.index)
+        wide_df.index = pd.DatetimeIndex(
+            [dt.replace(hour=17, minute=0, second=0) for dt in wide_df.index]
+        )
+        wide_df.sort_index(inplace=True)
+        return wide_df
