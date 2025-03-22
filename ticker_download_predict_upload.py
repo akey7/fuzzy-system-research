@@ -311,14 +311,22 @@ class DownloadPredictUpload:
         tickers = ["AAPL", "AMZN", "GOOG", "MSFT", "NVDA", "TSLA"]
         long_df_filename = os.path.join("input", f"Tickers {self.get_today_date()}.csv")
         date_from = self.past_business_day(pd.Timestamp(self.get_today_date()), 40)
-        date_to = self.past_business_day(pd.Timestamp(self.get_today_date()), 1).replace(hour=23, minute=59, second=59)
+        date_to = self.past_business_day(
+            pd.Timestamp(self.get_today_date()), 1
+        ).replace(hour=23, minute=59, second=59)
         print(date_from, date_to)
         if os.path.exists(long_df_filename):
             long_df = pd.read_csv(long_df_filename)
         else:
             long_df = self.get_tickers(tickers, date_from=date_from, date_to=date_to)
             long_df.to_csv(long_df_filename, index=True)
-        print(long_df.head())
+        wide_df = self.pivot_ticker_close_wide(long_df)
+        all_forecasts_df = self.train_arma_models(wide_df)
+        all_forecasts_df_filename = os.path.join(
+            "output", f"All Forecasts {self.get_today_date()}.csv"
+        )
+        all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
+        print(all_forecasts_df.head())
 
 
 if __name__ == "__main__":
