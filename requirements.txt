@@ -20,4 +20,3 @@ dask
 dask[distributed]
 huggingface_hub
 datasets
-python-dotenv
