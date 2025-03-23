@@ -29,9 +29,11 @@ pip install -r requirements.txt
 
 **Never commit the `.env` file to GitHub!** It should never be made publicly accessible because it contains API keys.
 
-Here are the API keys it needs:
+Here are the keys it needs:
 
-1. `MARKETSTACK_API_KEY`: Your key to the MarketStack API. It needs to be on a price tier that gives 10 years of history and end-of-day prices.
+1. `POLYGON_IO_API_KEY`: Key to Polygon.io API where stock data comes from.
+
+2. `HF_TOKEN`: Token to HuggingFace to upload processed datasets for the front end.
 
 ## Purposes of folders and scripts
 
@@ -39,14 +41,16 @@ Here are the API keys it needs:
 
 The folloing folders should be created before running the scripts in the section below. Their content is not committed to GitHub
 
-1. `input/`: For input data (see below).
+1. `input/`: For input data.
 
-2. `output/`: For output data (see below).
+2. `output/`: For output data.
 
-### Scripts
+### Scripts and notebooks
 
 There are several `.py` scripts in this repo. Here is a lists and what they do:
 
-1. `scrape_training_data.py`: Scrapes raw json from the MarketStack API with key above and places files into the `input/` folder with the following naming `[symbol]_history.json`.
+1. `fsf_arima_models.py`: Handles ARIMA model training and parallelization.
 
-2. `prep_training_data.py`: Takes the json files in `input/` and write csv files in `output/` that are appropriate for training the model. See the docstrings in the file for more information on what is in these csv files.
+2. `fsf_arima_models_viz.py`: Visualized time series analyzed by ARIMA models.
+
+3. `portfolio_decomposition_arima.ipynb` Decomposes and visualizes residuals of the tickers in the portfolio.
