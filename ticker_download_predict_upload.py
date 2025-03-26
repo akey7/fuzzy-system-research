@@ -24,6 +24,7 @@ class DownloadPredictUpload:
         login(hf_token, add_to_git_credential=True)
         polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
         self.polygon_client = RESTClient(polygon_io_api_key)
+        self.hf_dataset = os.getenv("HF_DATASET")
         cal = USFederalHolidayCalendar()
         holidays = cal.holidays()
         self.cbd = CustomBusinessDay(holidays=holidays)
@@ -334,7 +335,7 @@ class DownloadPredictUpload:
             all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
         print(all_forecasts_df.head())
         ds = Dataset.from_pandas(all_forecasts_df)
-        ds.push_to_hub("akey7/fsf-ticker-preds-vs-actuals")
+        ds.push_to_hub(self.hf_dataset)
 
 
 if __name__ == "__main__":
