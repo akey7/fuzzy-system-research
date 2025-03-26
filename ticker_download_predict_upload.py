@@ -118,8 +118,8 @@ class DownloadPredictUpload:
                 hour=23, minute=59, second=59
             )
             timestamp_ranges.append([start_timestamp, end_timestamp])
-        for timestamp_range in timestamp_ranges:
-            print(timestamp_range)
+        # for timestamp_range in timestamp_ranges:
+        #     print(timestamp_range)
         return timestamp_ranges
 
     def get_tickers(self, tickers, date_from, date_to, delay=5):
