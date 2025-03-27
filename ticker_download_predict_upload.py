@@ -120,8 +120,8 @@ class DownloadPredictUpload:
             next_start_timestamp = self.future_business_day(timestamp_ranges[-1][0], 1)
             next_end_timestamp = self.future_business_day(next_start_timestamp, num_days)
             timestamp_ranges.append([next_start_timestamp, next_end_timestamp])
-        for timestamp_range in timestamp_ranges:
-            print(timestamp_range)
+        # for timestamp_range in timestamp_ranges:
+        #     print(timestamp_range)
         return timestamp_ranges
 
     def get_tickers(self, tickers, date_from, date_to, delay=5):
@@ -278,6 +278,29 @@ class DownloadPredictUpload:
         return all_forecast_df
     
     def train_holt_winters_models(self, df, n_business_days=20, retain_actuals=True):
+        """
+        Train Holt-Winters models in a walk-forward method and track the 
+        predictions along the way.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The wide-format dataframe that contains ticker adjusted close
+            prices.
+
+        n_business_days : int, optional
+            The length of the training windows in number of business days,
+            excluding holidays. Defaults to 20.
+
+        retain_actuals : bool, optional
+            If True (the default) returns the actual value columns alongside
+            the predictions. If False, simply returns the predictions only.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame of predicted values along the walk-forward pattern.
+        """
         all_forecast_dfs = []
         timestamp_ranges = self.training_window_start_end(
             df.index[0],
@@ -301,10 +324,6 @@ class DownloadPredictUpload:
                     pred_date = self.future_business_day(train.index[-1], 1)
                     pred_dict = {"pred_date": pred_date, pred_key: pred}
                     forecast_rows.append(pred_dict)
-                final_pred_date = self.future_business_day(forecast_rows[-1]["pred_date"], 1)
-                final_pred = float(fit.forecast(steps=1))
-                final_pred_dict = {"pred_date": final_pred_date, pred_key: final_pred}
-                forecast_rows.append(final_pred_dict)
             forecast_df = pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
             if retain_actuals:
                 forecast_start_timestamp = forecast_df.index[0]
