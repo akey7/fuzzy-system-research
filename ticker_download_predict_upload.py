@@ -369,7 +369,7 @@ class DownloadPredictUpload:
             "output", f"All Forecasts {self.get_today_date()}.csv"
         )
 
-        arima_forecasts_df = self.train_arima_models(wide_df, max_p=1, max_q=1)
+        arima_forecasts_df = self.train_arima_models(wide_df)
         holt_winters_forecasts_df = self.train_holt_winters_models(wide_df, retain_actuals=False)
         all_forecasts_df = pd.concat([arima_forecasts_df, holt_winters_forecasts_df], axis=1)
         all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
