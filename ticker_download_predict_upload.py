@@ -1,15 +1,17 @@
+import warnings
 import os
 import time
 from datetime import datetime
 import pandas as pd
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
-from fsf_arima_models import ArimaModels
 from sklearn.metrics import mean_absolute_error
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from huggingface_hub import login
 from datasets import Dataset
 from polygon import RESTClient
 from dotenv import load_dotenv
+from fsf_arima_models import ArimaModels
 
 
 class DownloadPredictUpload:
@@ -206,7 +208,7 @@ class DownloadPredictUpload:
         wide_df.sort_index(inplace=True)
         return wide_df
 
-    def train_arma_models(
+    def train_arima_models(
         self,
         df,
         n_business_days=20,
@@ -273,7 +275,45 @@ class DownloadPredictUpload:
             ].copy()
             print(forecast_df.head())
             all_forecast_dfs.append(forecast_df)
-        all_forecast_df = pd.concat(all_forecast_dfs, axis=1)
+        all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
+        return all_forecast_df
+    
+    def train_holt_winters_models(self, df, n_business_days=20, retain_actuals=True):
+        all_forecast_dfs = []
+        timestamp_ranges = self.training_window_start_end(
+            df.index[0],
+            n_business_days,
+        )
+        tickers = [x for x in df.columns if "_" not in x]
+        for ticker in tickers:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                forecast_rows = []
+                for start_timestamp, end_timestamp in timestamp_ranges:
+                    train = df[ticker]
+                    train = train.loc[start_timestamp:end_timestamp]            
+                    model = ExponentialSmoothing(
+                        train, trend="add", seasonal=None, use_boxcox=0
+                    )
+                    fit = model.fit()
+                    pred = float(fit.forecast(steps=1))
+                    pred_key = f"{ticker}_hw"
+                    pred_date = self.future_business_day(train.index[-1], 1)
+                    pred_dict = {"pred_date": pred_date, pred_key: pred}
+                    forecast_rows.append(pred_dict)
+                final_pred_date = self.future_business_day(forecast_rows[-1]["pred_date"], 1)
+                final_pred = float(fit.forecast(steps=1))
+                final_pred_dict = {"pred_date": final_pred_date, pred_key: final_pred}
+                forecast_rows.append(final_pred_dict)
+            forecast_df = pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
+            if retain_actuals:
+                forecast_start_timestamp = forecast_df.index[0]
+                forecast_end_timestamp = forecast_df.index[-1]
+                forecast_df[ticker] = df.loc[
+                    forecast_start_timestamp:forecast_end_timestamp, ticker
+                ].copy()
+            all_forecast_dfs.append(forecast_df)
+        all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
 
     def forecast_errors(self, all_forecast_df):
@@ -328,14 +368,20 @@ class DownloadPredictUpload:
         all_forecasts_df_filename = os.path.join(
             "output", f"All Forecasts {self.get_today_date()}.csv"
         )
-        if os.path.exists(all_forecasts_df_filename):
-            all_forecasts_df = pd.read_csv(all_forecasts_df_filename)
-        else:
-            all_forecasts_df = self.train_arma_models(wide_df, max_p=1, max_q=1)  # TODO: Remove overriden max_p, max_q
-            all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
-        print(all_forecasts_df.head())
-        ds = Dataset.from_pandas(all_forecasts_df)
-        ds.push_to_hub(self.hf_dataset)
+
+        arima_forecasts_df = self.train_arima_models(wide_df, max_p=1, max_q=1)
+        holt_winters_forecasts_df = self.train_holt_winters_models(wide_df, retain_actuals=False)
+        all_forecasts_df = pd.concat([arima_forecasts_df, holt_winters_forecasts_df], axis=1)
+        all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
+
+        # if os.path.exists(all_forecasts_df_filename):
+        #     all_forecasts_df = pd.read_csv(all_forecasts_df_filename)
+        # else:
+        #     all_forecasts_df = self.train_arma_models(wide_df)
+        #     all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
+        # print(all_forecasts_df.head())
+        # ds = Dataset.from_pandas(all_forecasts_df)
+        # ds.push_to_hub(self.hf_dataset)
 
 
 if __name__ == "__main__":
