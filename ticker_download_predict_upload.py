@@ -315,9 +315,7 @@ class DownloadPredictUpload:
                 for start_timestamp, end_timestamp in timestamp_ranges:
                     train = df[ticker]
                     train = train.loc[start_timestamp:end_timestamp]            
-                    model = ExponentialSmoothing(
-                        train, trend="add", seasonal=None, use_boxcox=0
-                    )
+                    model = ExponentialSmoothing(train, use_boxcox=0)
                     fit = model.fit()
                     pred = float(fit.forecast(steps=1))
                     pred_key = f"{ticker}_hw"
