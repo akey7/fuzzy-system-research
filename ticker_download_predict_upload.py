@@ -331,7 +331,7 @@ class DownloadPredictUpload:
         if os.path.exists(all_forecasts_df_filename):
             all_forecasts_df = pd.read_csv(all_forecasts_df_filename)
         else:
-            all_forecasts_df = self.train_arma_models(wide_df)
+            all_forecasts_df = self.train_arma_models(wide_df, max_p=1, max_q=1)  # TODO: Remove overriden max_p, max_q
             all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
         print(all_forecasts_df.head())
         ds = Dataset.from_pandas(all_forecasts_df)
