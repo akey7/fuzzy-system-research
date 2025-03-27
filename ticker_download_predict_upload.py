@@ -91,20 +91,23 @@ class DownloadPredictUpload:
         """
         return pd.date_range(start=reference_date, periods=num_days, freq=self.cbd)
 
-    def training_window_start_end(self, start_timestamp, num_days=20):
+    def training_window_start_end(self, start_timestamp, end_timestamp, num_days=20):
         """
         Return a list of lists, with each inner list containing two pd.Timestamps.
         The first timestamp is the start of a business day, and the second timestamp
         is the end of a business day. These ranges are used to specify intervals
-        to train ARIMA models on.
+        to train ARIMA and Holt-Winters models on in a walk-forward method.
 
         Parameters
         ----------
         start_timestamp : pd.Timestamp
             Start day of range.
 
+        end_timestamp : pd.Timestamp
+            End of the day range.
+
         num_days : int, optional
-            Number of days in the specified range. If not specified, defaults
+            Number of days in the specified ranges. If not specified, defaults
             to 20 business days.
 
         Returns
@@ -112,17 +115,13 @@ class DownloadPredictUpload:
         List[List[pd.Timestamp, pd.Timestamp]]
             Returns timestamp ranges.
         """
-        start_timestamps = self.create_business_day_range(
-            pd.Timestamp(start_timestamp), num_days
-        )
-        timestamp_ranges = []
-        for start_timestamp in start_timestamps:
-            end_timestamp = self.future_business_day(start_timestamp, num_days).replace(
-                hour=23, minute=59, second=59
-            )
-            timestamp_ranges.append([start_timestamp, end_timestamp])
-        # for timestamp_range in timestamp_ranges:
-        #     print(timestamp_range)
+        timestamp_ranges = [[start_timestamp, self.future_business_day(start_timestamp, 20)]]
+        while timestamp_ranges[-1][1] < pd.Timestamp(end_timestamp.date()):
+            next_start_timestamp = self.future_business_day(timestamp_ranges[-1][0], 1)
+            next_end_timestamp = self.future_business_day(next_start_timestamp, num_days)
+            timestamp_ranges.append([next_start_timestamp, next_end_timestamp])
+        for timestamp_range in timestamp_ranges:
+            print(timestamp_range)
         return timestamp_ranges
 
     def get_tickers(self, tickers, date_from, date_to, delay=5):
@@ -250,6 +249,7 @@ class DownloadPredictUpload:
         all_forecast_dfs = []
         timestamp_ranges = self.training_window_start_end(
             df.index[0],
+            df.index[-1],
             n_business_days,
         )
         for ticker in df.columns:
@@ -273,7 +273,6 @@ class DownloadPredictUpload:
             forecast_df[ticker] = df.loc[
                 forecast_start_timestamp:forecast_end_timestamp, ticker
             ].copy()
-            print(forecast_df.head())
             all_forecast_dfs.append(forecast_df)
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
@@ -282,6 +281,7 @@ class DownloadPredictUpload:
         all_forecast_dfs = []
         timestamp_ranges = self.training_window_start_end(
             df.index[0],
+            df.index[-1],
             n_business_days,
         )
         tickers = [x for x in df.columns if "_" not in x]
@@ -315,27 +315,6 @@ class DownloadPredictUpload:
             all_forecast_dfs.append(forecast_df)
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
-
-    def forecast_errors(self, all_forecast_df):
-        """
-        Returns a DataFrame of MAEs of forecast errors.
-
-        Parameters
-        ----------
-        all_forecast_df : pd.DataFrame
-            Forecast and actual values.
-        """
-        rows = []
-        tickers = [
-            ticker for ticker in all_forecast_df.columns if "_pred" not in ticker
-        ]
-        for ticker in tickers:
-            mae = mean_absolute_error(
-                all_forecast_df[ticker][:-1], all_forecast_df[f"{ticker}_pred"][:-1]
-            )
-            rows.append({"ticker": ticker, "mae": mae})
-        result_df = pd.DataFrame(rows).set_index("ticker")
-        return result_df
 
     def get_today_date(self):
         """
