@@ -366,20 +366,15 @@ class DownloadPredictUpload:
         all_forecasts_df_filename = os.path.join(
             "output", f"All Forecasts {self.get_today_date()}.csv"
         )
-
-        arima_forecasts_df = self.train_arima_models(wide_df)
-        holt_winters_forecasts_df = self.train_holt_winters_models(wide_df, retain_actuals=False)
-        all_forecasts_df = pd.concat([arima_forecasts_df, holt_winters_forecasts_df], axis=1)
-        all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
-
-        # if os.path.exists(all_forecasts_df_filename):
-        #     all_forecasts_df = pd.read_csv(all_forecasts_df_filename)
-        # else:
-        #     all_forecasts_df = self.train_arma_models(wide_df)
-        #     all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
-        # print(all_forecasts_df.head())
-        # ds = Dataset.from_pandas(all_forecasts_df)
-        # ds.push_to_hub(self.hf_dataset)
+        if os.path.exists(all_forecasts_df_filename):
+            all_forecasts_df = pd.read_csv(all_forecasts_df_filename)
+        else:
+            arima_forecasts_df = self.train_arima_models(wide_df)
+            holt_winters_forecasts_df = self.train_holt_winters_models(wide_df, retain_actuals=False)
+            all_forecasts_df = pd.concat([arima_forecasts_df, holt_winters_forecasts_df], axis=1)
+            all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
+        ds = Dataset.from_pandas(all_forecasts_df)
+        ds.push_to_hub(self.hf_dataset)
 
 
 if __name__ == "__main__":
