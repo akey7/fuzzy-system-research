@@ -261,7 +261,7 @@ class DownloadPredictUpload:
                 pred_date, pred = am.fit(
                     ticker_ts, max_p=max_p, max_q=max_q, train_len=10
                 )
-                pred_key = f"{ticker}_pred"
+                pred_key = f"{ticker}_arima"
                 pred_dict = {"pred_date": pred_date, pred_key: pred}
                 print(pred_dict)
                 forecast_rows.append(pred_dict)
