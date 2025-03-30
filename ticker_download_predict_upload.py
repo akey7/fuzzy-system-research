@@ -5,7 +5,6 @@ from datetime import datetime
 import pandas as pd
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
-from sklearn.metrics import mean_absolute_error
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from huggingface_hub import login
 from datasets import Dataset
@@ -124,7 +123,7 @@ class DownloadPredictUpload:
         #     print(timestamp_range)
         return timestamp_ranges
 
-    def get_tickers(self, tickers, date_from, date_to, delay=5):
+    def get_tickers(self, tickers, date_from, date_to, delay=10):
         """
         Gets ticker data from Polygon.io between the given dates, inclusive
         of the ending date.
