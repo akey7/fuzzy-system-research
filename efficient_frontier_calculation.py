@@ -219,7 +219,7 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.download_returns_or_load_from_cache(tickers)
         self.calc_means_and_covariance()
         self.simulate_portfolios(1000)
-        self.create_weight_bounds_for_optimization((0.25, None))
+        self.create_weight_bounds_for_optimization((0.5, None))
         self.calc_min_var_portfolio()
         self.calc_sharpe_ratio()
         # self.calc_efficient_frontier()
