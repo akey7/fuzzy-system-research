@@ -1,10 +1,14 @@
 import os
 import time
+import json
+import datetime
 import pandas as pd
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from polygon import RESTClient
 from dotenv import load_dotenv
+import pandas_datareader as web
+from dateutil.relativedelta import relativedelta
 
 
 class DatesAndDownloads:
@@ -165,6 +169,35 @@ class DatesAndDownloads:
         df.drop("timestamp", axis=1, inplace=True)
         df.sort_index(inplace=True)
         return df
+    
+    def get_daily_risk_free_rate(self):
+        today_date = self.get_today_date()
+        risk_free_rate_filename = os.path.join("input", f"Risk Free Rate {today_date}.json")
+        if os.path.exists(risk_free_rate_filename):
+            print("Reading risk-free rate cache...")
+            with open(risk_free_rate_filename, "r", encoding="utf-8") as f:
+                risk_free_rate_data = json.load(f)
+                print(risk_free_rate_data)
+                daily_risk_free_rate = risk_free_rate_data["daily_risk_free_rate"]
+        else:
+            end_date = datetime.datetime.now()
+            start_date = end_date - relativedelta(years=1)
+            print(start_date, end_date)
+            tb3m_df = web.DataReader("DTB3", "fred", start_date, end_date).sort_values(
+                "DATE", ascending=False
+            )
+            risk_free_rate = float(tb3m_df.iloc[0]["DTB3"])
+            daily_risk_free_rate = risk_free_rate / 252
+            risk_free_rate_date = str(tb3m_df.index[0])
+            print(daily_risk_free_rate)
+            risk_free_rate_data = {
+                "risk_free_rate": risk_free_rate,
+                "daily_risk_free_rate": daily_risk_free_rate,
+                "risk_free_rate_date": risk_free_rate_date,
+            }
+            with open(risk_free_rate_filename, "w", encoding="utf-8") as f:
+                json.dump(risk_free_rate_data, f, indent=4)
+        return daily_risk_free_rate
 
     def pivot_ticker_close_wide(self, long_df):
         """
