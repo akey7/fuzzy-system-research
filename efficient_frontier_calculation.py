@@ -201,6 +201,7 @@ class EfficientFrontierCalculation(DatesAndDownloads):
             sharpe_group.create_dataset("return", data=self.sharpe_return)
             tangency_line_group.create_dataset("xs", data=self.tangency_xs)
             tangency_line_group.create_dataset("ys", data=self.tangency_ys)
+        print(f"Saved {h5_filename}")
 
     def run(self):
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
@@ -211,3 +212,8 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.calc_sharpe_ratio()
         self.calc_tangency_line()
         self.save_h5()
+
+
+if __name__ == "__main__":
+    efc = EfficientFrontierCalculation()
+    efc.run()
