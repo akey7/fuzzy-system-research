@@ -24,6 +24,10 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.simulated_risks = None
         self.efficient_risks = None
         self.efficient_returns = None
+        self.sharpe_ratio = None
+        self.sharpe_weights = None
+        self.sharpe_risk = None
+        self.sharpe_return = None
 
     def download_returns_or_load_from_cache(self, tickers):
         long_df_filename = os.path.join(
@@ -86,6 +90,12 @@ class EfficientFrontierCalculation(DatesAndDownloads):
     def target_returns_constraint(self, weights, target_return):
         return weights.dot(self.mean_returns) - target_return
 
+    def negative_sharpe_ratio(self, weights):
+        daily_risk_free_rate = self.get_daily_risk_free_rate()
+        mean = weights.dot(self.mean_returns)
+        risk = np.sqrt(weights.dot(self.cov_np).dot(weights))
+        return -(mean - daily_risk_free_rate) / risk
+
     def calc_min_var_portfolio(self):
         d = len(self.mean_returns)
         min_var_result = minimize(
@@ -114,7 +124,11 @@ class EfficientFrontierCalculation(DatesAndDownloads):
             self.min_var_return, self.simulated_returns.max(), n_portfolios
         )
         constraints = [
-            {"type": "eq", "fun": self.target_returns_constraint, "args": [self.efficient_returns[0]]},
+            {
+                "type": "eq",
+                "fun": self.target_returns_constraint,
+                "args": [self.efficient_returns[0]],
+            },
             {"type": "eq", "fun": self.portfolio_weights_constraint},
         ]
         self.efficient_risks = []
@@ -132,9 +146,31 @@ class EfficientFrontierCalculation(DatesAndDownloads):
             else:
                 print("Optimization error!", result)
 
+    def calc_sharpe_ratio(self):
+        print("######################################################")
+        print("# SHARPE RATIO CALCULATION                           #")
+        print("######################################################")
+        d = len(self.mean_returns)
+        sharpe_ratio_result = minimize(
+            fun=self.negative_sharpe_ratio,
+            x0=np.ones(d) / d,
+            method="SLSQP",
+            bounds=self.weight_bounds,
+            constraints={"type": "eq", "fun": self.portfolio_weights_constraint},
+        )
+        print(sharpe_ratio_result)
+        self.sharpe_ratio = -sharpe_ratio_result.fun
+        self.sharpe_weights = sharpe_ratio_result.x
+        self.sharpe_risk = np.sqrt(
+            self.sharpe_weights.dot(self.cov_np).dot(self.sharpe_weights)
+        )
+        self.sharpe_return = self.sharpe_weights.dot(self.mean_returns)
+        print(self.sharpe_ratio, self.sharpe_weights)
+
     def run(self):
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
         self.load_returns(tickers)
         self.calc_means_and_covariance()
         self.create_weight_bounds_for_optimization((0.5, None))
         self.calc_min_var_portfolio()
+        self.calc_sharpe_ratio()
