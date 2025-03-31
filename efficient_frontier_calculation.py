@@ -82,7 +82,7 @@ class EfficientFrontierCalculation(DatesAndDownloads):
     def get_portfolio_variance(self, weights):
         return weights.dot(self.cov_np).dot(weights)
 
-    def portfolio_weights_constraint(weights):
+    def portfolio_weights_constraint(self, weights):
         return weights.sum() - 1
 
     def target_returns_constraint(self, weights, target_return):
@@ -95,17 +95,28 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         return -(mean - daily_risk_free_rate) / risk
 
     def calc_min_var_portfolio(self):
+        def callback(xk):
+            print(f"Current weights: {xk}")
+            print(f"Current variance: {self.get_portfolio_variance(xk)}")
+
+        print("######################################################")
+        print("# MINIMUM VARIANCE PORTFOLIO OPTIMIZATION            #")
+        print("######################################################")
+        print(self.cov_np)
+        eigenvalues = np.linalg.eigvals(self.cov_np)
+        is_valid = np.all(eigenvalues >= -1e-10)  # Small tolerance for numerical issues
+        print(is_valid)
+        print(self.weight_bounds)
         d = len(self.mean_returns)
+        print(d)
         min_var_result = minimize(
             fun=self.get_portfolio_variance,
             x0=np.ones(d) / d,
             method="SLSQP",
             bounds=self.weight_bounds,
             constraints={"type": "eq", "fun": self.portfolio_weights_constraint},
+            callback=callback
         )
-        print("######################################################")
-        print("# MINIMUM VARIANCE PORTFOLIO OPTIMIZATION            #")
-        print("######################################################")
         print(min_var_result)
         self.min_var_risk = np.sqrt(min_var_result.fun)
         self.min_var_weights = min_var_result.x
@@ -167,7 +178,7 @@ class EfficientFrontierCalculation(DatesAndDownloads):
 
     def calc_tangency_line(self):
         daily_risk_free_rate = self.get_daily_risk_free_rate()
-        tangency_max_risk = max(self.optimized_risks)
+        tangency_max_risk = max(self.efficient_risks)
         self.tangency_xs = np.linspace(0, tangency_max_risk, 100)
         self.tangency_ys = daily_risk_free_rate + self.sharpe_ratio * self.tangency_xs
 
@@ -205,13 +216,15 @@ class EfficientFrontierCalculation(DatesAndDownloads):
 
     def run(self):
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
-        self.load_returns(tickers)
+        self.download_returns_or_load_from_cache(tickers)
         self.calc_means_and_covariance()
-        self.create_weight_bounds_for_optimization((0.5, None))
+        self.simulate_portfolios(1000)
+        self.create_weight_bounds_for_optimization((0.25, None))
         self.calc_min_var_portfolio()
         self.calc_sharpe_ratio()
-        self.calc_tangency_line()
-        self.save_h5()
+        # self.calc_efficient_frontier()
+        # self.calc_tangency_line()
+        # self.save_h5()
 
 
 if __name__ == "__main__":
