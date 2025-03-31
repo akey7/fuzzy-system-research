@@ -20,9 +20,15 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.min_var_risk = None
         self.min_var_weights = None
         self.min_var_return = None
+        self.simulated_returns = None
+        self.simulated_risks = None
+        self.efficient_risks = None
+        self.efficient_returns = None
 
     def download_returns_or_load_from_cache(self, tickers):
-        long_df_filename = os.path.join("input", f"Year of Tickers {self.get_today_date()}.csv")
+        long_df_filename = os.path.join(
+            "input", f"Year of Tickers {self.get_today_date()}.csv"
+        )
         if os.path.exists(long_df_filename):
             long_df = pd.read_csv(long_df_filename)
             long_df["datetime"] = pd.to_datetime(long_df["datetime"])
@@ -33,9 +39,9 @@ class EfficientFrontierCalculation(DatesAndDownloads):
             long_df.sort_index(inplace=True)
         else:
             date_from = self.past_business_day(pd.Timestamp(self.get_today_date()), 253)
-            date_to = self.past_business_day(pd.Timestamp(self.get_today_date()), 1).replace(
-                hour=23, minute=59, second=59
-            )
+            date_to = self.past_business_day(
+                pd.Timestamp(self.get_today_date()), 1
+            ).replace(hour=23, minute=59, second=59)
             print(date_from, date_to)
             long_df = self.get_tickers(tickers, date_from=date_from, date_to=date_to)
             long_df.to_csv(long_df_filename, index=True)
@@ -50,20 +56,22 @@ class EfficientFrontierCalculation(DatesAndDownloads):
 
     def simulate_portfolios(self, n_portfolios):
         d = len(self.mean_returns)
-        simulated_returns = np.zeros(n_portfolios)
-        simulated_risks = np.zeros(n_portfolios)
+        self.simulated_returns = np.zeros(n_portfolios)
+        self.simulated_risks = np.zeros(n_portfolios)
         random_weights = []
         rand_range = 1.0
 
         for i in range(n_portfolios):
-            weights = np.random.random(d) * rand_range - rand_range / 2  # Allows short-selling
+            weights = (
+                np.random.random(d) * rand_range - rand_range / 2
+            )  # Allows short-selling
             weights[-1] = 1 - weights[:-1].sum()
             np.random.shuffle(weights)
             random_weights.append(weights)
             simulated_return = self.mean_returns.dot(weights)
             simulated_risk = np.sqrt(weights.dot(self.cov_np).dot(weights))
-            simulated_returns[i] = simulated_return
-            simulated_risks[i] = simulated_risk
+            self.simulated_returns[i] = simulated_return
+            self.simulated_risks[i] = simulated_risk
 
     def create_weight_bounds_for_optimization(self, bounds):
         d = len(self.mean_returns)
@@ -71,10 +79,13 @@ class EfficientFrontierCalculation(DatesAndDownloads):
 
     def get_portfolio_variance(self, weights):
         return weights.dot(self.cov_np).dot(weights)
-    
+
     def portfolio_weights_constraint(weights):
         return weights.sum() - 1
-    
+
+    def target_returns_constraint(self, weights, target_return):
+        return weights.dot(self.mean_returns) - target_return
+
     def calc_min_var_portfolio(self):
         d = len(self.mean_returns)
         min_var_result = minimize(
@@ -92,6 +103,34 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.min_var_weights = min_var_result.x
         self.min_var_return = self.min_var_weights.dot(self.mean_returns)
         print(self.min_var_risk, self.min_var_weights, self.min_var_return)
+
+    def calc_efficient_frontier(self):
+        print("######################################################")
+        print("# EFFICIENT FRONTIER CALCULATION                     #")
+        print("######################################################")
+        n_portfolios = 100
+        d = len(self.mean_returns)
+        self.efficient_returns = np.linspace(
+            self.min_var_return, self.simulated_returns.max(), n_portfolios
+        )
+        constraints = [
+            {"type": "eq", "fun": self.target_returns_constraint, "args": [self.efficient_returns[0]]},
+            {"type": "eq", "fun": self.portfolio_weights_constraint},
+        ]
+        self.efficient_risks = []
+        for target_return in self.efficient_returns:
+            constraints[0]["args"] = [target_return]
+            result = minimize(
+                fun=self.get_portfolio_variance,
+                x0=np.ones(d) / d,
+                method="SLSQP",
+                bounds=self.weight_bounds,
+                constraints=constraints,
+            )
+            if result.status == 0:
+                self.efficient_risks.append(np.sqrt(result.fun))
+            else:
+                print("Optimization error!", result)
 
     def run(self):
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
