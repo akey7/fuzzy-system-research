@@ -16,6 +16,7 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.returns_df = None
         self.mean_returns = None
         self.cov_np = None
+        self.weight_bounds = None
 
     def download_returns_or_load_from_cache(self, tickers):
         long_df_filename = os.path.join("input", f"Year of Tickers {self.get_today_date()}.csv")
@@ -43,6 +44,30 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.mean_returns = self.returns_df.mean()
         cov = self.returns_df.cov()
         self.cov_np = cov.to_numpy()
+
+    def simulate_portfolios(self, n_portfolios):
+        d = len(self.mean_returns)
+        simulated_returns = np.zeros(n_portfolios)
+        simulated_risks = np.zeros(n_portfolios)
+        random_weights = []
+        rand_range = 1.0
+
+        for i in range(n_portfolios):
+            weights = np.random.random(d) * rand_range - rand_range / 2  # Allows short-selling
+            weights[-1] = 1 - weights[:-1].sum()
+            np.random.shuffle(weights)
+            random_weights.append(weights)
+            simulated_return = self.mean_returns.dot(weights)
+            simulated_risk = np.sqrt(weights.dot(self.cov_np).dot(weights))
+            simulated_returns[i] = simulated_return
+            simulated_risks[i] = simulated_risk
+
+    def create_weight_bounds_for_optimization(self, bounds):
+        d = len(self.mean_returns)
+        self.weight_bounds = [bounds] * d
+
+    def get_portfolio_variance(self, weights):
+        return weights.dot(self.cov_np).dot(weights)
 
     def run(self):
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
