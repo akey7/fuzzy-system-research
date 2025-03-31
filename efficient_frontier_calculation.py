@@ -176,7 +176,7 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         h5_filename = os.path.join(
             "output", f"Efficient Frontier Plot Data {today_date}.h5"
         )
-        with open(h5_filename, "w") as hf:
+        with h5py.File(h5_filename, "w") as hf:
             mean_returns_group = hf.create_group("mean")
             min_var_group = hf.create_group("min_var")
             simulated_portfolios_group = hf.create_group("simulated_portfolios")
