@@ -6,6 +6,27 @@ import h5py
 from dates_and_downloads import DatesAndDownloads
 
 
+def optimize_min_var_portfolio(mean_returns, cov_np):
+    D = len(mean_returns)
+    x0 = np.ones(D) / D
+    eigvals = np.linalg.eigvals(cov_np)
+    if not np.all(eigvals > -1e-10):  # Allow for small numerical errors
+        print("Warning: Covariance matrix is not positive semi-definite")
+    constraints = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
+    bounds = [(0.0, 1.0) for _ in range(D)]
+    min_var_result = minimize(
+        fun=lambda w: w.dot(cov_np).dot(w),
+        x0=x0,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
+        options={'maxiter': 1000, 'disp': True}
+    )
+    print(min_var_result)
+    return min_var_result.x
+
+
+
 class EfficientFrontier(DatesAndDownloads):
     def __init__(self):
         super().__init__()
@@ -106,7 +127,7 @@ class EfficientFrontier(DatesAndDownloads):
         self.calc_means_and_covariance()
         self.simulate_portfolios(1000)
         self.create_weight_bounds_for_optimization((0.5, None))
-        self.calc_min_var_portfolio()
+        optimize_min_var_portfolio(self.mean_returns, self.cov_np)
         # self.calc_sharpe_ratio()
         # self.calc_efficient_frontier()
         # self.calc_tangency_line()
