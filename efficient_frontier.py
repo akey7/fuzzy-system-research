@@ -10,9 +10,9 @@ def optimize_min_var_portfolio(mean_returns, cov):
     D = len(mean_returns)
     x0 = np.ones(D) / D
     eigvals = np.linalg.eigvals(cov)
-    if not np.all(eigvals > -1e-10):  # Allow for small numerical errors
+    if not np.all(eigvals > -1e-10):
         print("Warning: Covariance matrix is not positive semi-definite")
-    constraints = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
+    constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1}]
     bounds = [(0.0, 1.0) for _ in range(D)]
     min_var_result = minimize(
         fun=lambda w: w.dot(cov).dot(w),
@@ -20,11 +20,62 @@ def optimize_min_var_portfolio(mean_returns, cov):
         method="SLSQP",
         bounds=bounds,
         constraints=constraints,
-        options={'maxiter': 1000, 'disp': True}
+        options={"maxiter": 1000, "disp": True},
     )
     print(min_var_result)
     return min_var_result.x
 
+
+def optimize_efficient_frontier(mean_returns, cov, min_var_return, simulated_returns_max):
+    n_portfolios = 100
+    efficient_returns = np.linspace(min_var_return, simulated_returns_max, n_portfolios)
+    D = len(mean_returns)
+    x0 = np.ones(D) / D
+    
+    # Check if covariance matrix is positive semi-definite
+    eigvals = np.linalg.eigvals(cov)
+    if not np.all(eigvals > -1e-10):
+        print("Warning: Covariance matrix is not positive semi-definite")
+        # Make it positive semi-definite
+        cov = (cov + cov.T) / 2  # Ensure symmetry
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        eigvals[eigvals < 1e-10] = 1e-10
+        cov = eigvecs.dot(np.diag(eigvals)).dot(eigvecs.T)
+    
+    efficient_risks = []
+    efficient_weights = []
+    
+    for target_return in efficient_returns:
+        constraints = [
+            {
+                "type": "eq",
+                "fun": lambda w, target_ret=target_return: w.dot(mean_returns) - target_ret,
+            },
+            {"type": "eq", "fun": lambda w: np.sum(w) - 1},
+        ]
+        
+        bounds = [(0.0, 1.0) for _ in range(D)]
+        
+        result = minimize(
+            fun=lambda w: w.dot(cov).dot(w),
+            x0=x0,
+            method="SLSQP",
+            bounds=bounds,
+            constraints=constraints,
+            options={'ftol': 1e-9, 'disp': False}
+        )
+        
+        if result.status == 0:
+            efficient_risk = np.sqrt(result.fun)
+            efficient_weights.append(result.x)
+            efficient_risks.append(efficient_risk)
+            # Convert numpy values to Python float for safe string formatting
+            print(f"efficient_return={float(target_return):.4f}, efficient_risk={float(efficient_risk):.4f}")
+        else:
+            # Convert target_return to Python float
+            print(f"Optimization error for return {float(target_return):.4f}:", result.message)
+    
+    return efficient_risks, efficient_returns, efficient_weights
 
 
 class EfficientFrontier(DatesAndDownloads):
@@ -127,7 +178,17 @@ class EfficientFrontier(DatesAndDownloads):
         self.calc_means_and_covariance()
         self.simulate_portfolios(1000)
         self.create_weight_bounds_for_optimization((0.5, None))
-        optimize_min_var_portfolio(self.mean_returns, self.cov_np)
+        min_var_return = optimize_min_var_portfolio(self.mean_returns, self.cov_np)
+        print(self.mean_returns)
+        print(self.cov_np)
+        efficient_risks, efficient_returns, efficient_weights = (
+            optimize_efficient_frontier(
+                self.mean_returns,
+                self.cov_np,
+                min_var_return,
+                max(self.simulated_returns),
+            )
+        )
         # self.calc_sharpe_ratio()
         # self.calc_efficient_frontier()
         # self.calc_tangency_line()
