@@ -17,6 +17,9 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.mean_returns = None
         self.cov_np = None
         self.weight_bounds = None
+        self.min_var_risk = None
+        self.min_var_weights = None
+        self.min_var_return = None
 
     def download_returns_or_load_from_cache(self, tickers):
         long_df_filename = os.path.join("input", f"Year of Tickers {self.get_today_date()}.csv")
@@ -68,8 +71,31 @@ class EfficientFrontierCalculation(DatesAndDownloads):
 
     def get_portfolio_variance(self, weights):
         return weights.dot(self.cov_np).dot(weights)
+    
+    def portfolio_weights_constraint(weights):
+        return weights.sum() - 1
+    
+    def calc_min_var_portfolio(self):
+        d = len(self.mean_returns)
+        min_var_result = minimize(
+            fun=self.get_portfolio_variance,
+            x0=np.ones(d) / d,
+            method="SLSQP",
+            bounds=self.weight_bounds,
+            constraints={"type": "eq", "fun": self.portfolio_weights_constraint},
+        )
+        print("######################################################")
+        print("# MINIMUM VARIANCE PORTFOLIO OPTIMIZATION            #")
+        print("######################################################")
+        print(min_var_result)
+        self.min_var_risk = np.sqrt(min_var_result.fun)
+        self.min_var_weights = min_var_result.x
+        self.min_var_return = self.min_var_weights.dot(self.mean_returns)
+        print(self.min_var_risk, self.min_var_weights, self.min_var_return)
 
     def run(self):
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
         self.load_returns(tickers)
         self.calc_means_and_covariance()
+        self.create_weight_bounds_for_optimization((0.5, None))
+        self.calc_min_var_portfolio()
