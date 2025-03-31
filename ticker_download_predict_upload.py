@@ -149,13 +149,6 @@ class DownloadPredictUpload(DatesAndDownloads):
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
 
-    def get_today_date(self):
-        """
-        Return today's date as a YYYY-MM-DD string.
-        """
-        today = datetime.now()
-        return today.strftime("%Y-%m-%d")
-
     def run(self):
         """
         Download ticker data from Polygon (if needed), process it, and

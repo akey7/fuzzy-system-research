@@ -1,12 +1,8 @@
 import os
-import json
-import datetime
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-import pandas_datareader as web
-from dateutil.relativedelta import relativedelta
+import h5py
 from dates_and_downloads import DatesAndDownloads
 
 
@@ -28,6 +24,8 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.sharpe_weights = None
         self.sharpe_risk = None
         self.sharpe_return = None
+        self.tangency_xs = None
+        self.tangency_ys = None
 
     def download_returns_or_load_from_cache(self, tickers):
         long_df_filename = os.path.join(
@@ -167,6 +165,43 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.sharpe_return = self.sharpe_weights.dot(self.mean_returns)
         print(self.sharpe_ratio, self.sharpe_weights)
 
+    def calc_tangency_line(self):
+        daily_risk_free_rate = self.get_daily_risk_free_rate()
+        tangency_max_risk = max(self.optimized_risks)
+        self.tangency_xs = np.linspace(0, tangency_max_risk, 100)
+        self.tangency_ys = daily_risk_free_rate + self.sharpe_ratio * self.tangency_xs
+
+    def save_h5(self):
+        today_date = self.get_today_date()
+        h5_filename = os.path.join(
+            "output", f"Efficient Frontier Plot Data {today_date}.h5"
+        )
+        with open(h5_filename, "w") as hf:
+            mean_returns_group = hf.create_group("mean")
+            min_var_group = hf.create_group("min_var")
+            simulated_portfolios_group = hf.create_group("simulated_portfolios")
+            efficient_frontier_group = hf.create_group("efficient_frontier")
+            sharpe_group = hf.create_group("sharpe")
+            tangency_line_group = hf.create_group("tangency_line")
+            mean_returns_group.create_dataset("returns", data=self.mean_returns)
+            min_var_group.create_dataset("risk", data=self.min_var_risk)
+            min_var_group.create_dataset("return", data=self.min_var_return)
+            simulated_portfolios_group.create_dataset(
+                "returns", data=self.simulated_returns
+            )
+            simulated_portfolios_group.create_dataset(
+                "risks", data=self.simulated_risks
+            )
+            efficient_frontier_group.create_dataset("risks", data=self.efficient_risks)
+            efficient_frontier_group.create_dataset(
+                "returns", data=self.efficient_returns
+            )
+            sharpe_group.create_dataset("ratio", data=self.sharpe_ratio)
+            sharpe_group.create_dataset("risk", data=self.sharpe_risk)
+            sharpe_group.create_dataset("return", data=self.sharpe_return)
+            tangency_line_group.create_dataset("xs", data=self.tangency_xs)
+            tangency_line_group.create_dataset("ys", data=self.tangency_ys)
+
     def run(self):
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
         self.load_returns(tickers)
@@ -174,3 +209,5 @@ class EfficientFrontierCalculation(DatesAndDownloads):
         self.create_weight_bounds_for_optimization((0.5, None))
         self.calc_min_var_portfolio()
         self.calc_sharpe_ratio()
+        self.calc_tangency_line()
+        self.save_h5()

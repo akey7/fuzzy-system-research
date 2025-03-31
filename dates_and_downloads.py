@@ -20,6 +20,13 @@ class DatesAndDownloads:
         holidays = cal.holidays()
         self.cbd = CustomBusinessDay(holidays=holidays)
 
+    def get_today_date(self):
+        """
+        Return today's date as a YYYY-MM-DD string.
+        """
+        today = datetime.now()
+        return today.strftime("%Y-%m-%d")
+    
     def past_business_day(self, reference_date, business_days_past):
         """
         Calculates the business date a specified number of business days in the past,

@@ -21,3 +21,4 @@ dask[distributed]
 huggingface_hub
 datasets
 python-dateutil
+h5
