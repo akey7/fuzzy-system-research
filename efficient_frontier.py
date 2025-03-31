@@ -6,16 +6,16 @@ import h5py
 from dates_and_downloads import DatesAndDownloads
 
 
-def optimize_min_var_portfolio(mean_returns, cov_np):
+def optimize_min_var_portfolio(mean_returns, cov):
     D = len(mean_returns)
     x0 = np.ones(D) / D
-    eigvals = np.linalg.eigvals(cov_np)
+    eigvals = np.linalg.eigvals(cov)
     if not np.all(eigvals > -1e-10):  # Allow for small numerical errors
         print("Warning: Covariance matrix is not positive semi-definite")
     constraints = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1}]
     bounds = [(0.0, 1.0) for _ in range(D)]
     min_var_result = minimize(
-        fun=lambda w: w.dot(cov_np).dot(w),
+        fun=lambda w: w.dot(cov).dot(w),
         x0=x0,
         method="SLSQP",
         bounds=bounds,
