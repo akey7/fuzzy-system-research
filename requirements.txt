@@ -21,3 +21,4 @@ dask[distributed]
 python-dateutil
 boto3
 pyyaml
+h5py
