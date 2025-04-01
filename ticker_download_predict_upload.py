@@ -175,6 +175,9 @@ class DownloadPredictUpload:
             time.sleep(delay)
         df = pd.DataFrame(rows)
         df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms").dt.tz_localize(None)
+        df["datetime"] = df["datetime"].apply(
+            lambda x: pd.Timestamp(x).replace(hour=23, minute=59, second=59)
+        )
         df.set_index("datetime", inplace=True)
         df.drop("timestamp", axis=1, inplace=True)
         df.sort_index(inplace=True)
@@ -215,7 +218,7 @@ class DownloadPredictUpload:
         n_workers=6,
     ):
         """
-        Trains ARMA models along each training window implementing a
+        Trains ARIMA models along each training window implementing a
         walk-forward backtesting scheme of model evaluation. Each training
         seeks the optimal (p, q) values for the best performance.
 
@@ -232,10 +235,10 @@ class DownloadPredictUpload:
             month of business days.
 
         max_p : int, optional
-            Max p of ARMA models. Defaults to 2.
+            Max p of ARIMA models. Defaults to 2.
 
         max_q : int, optional
-            Max q of ARMA models. Defaults to 2.
+            Max q of ARIMA models. Defaults to 2.
 
         n_workers : int, optional
             Number of cores to dedicate to training models. Defaults to 6
@@ -313,12 +316,13 @@ class DownloadPredictUpload:
                 forecast_rows = []
                 for start_timestamp, end_timestamp in timestamp_ranges:
                     train = df[ticker]
-                    train = train.loc[start_timestamp:end_timestamp]            
-                    model = ExponentialSmoothing(train, use_boxcox=0)
+                    train = train.loc[start_timestamp:end_timestamp]
+                    train = train.resample("D").ffill().dropna()
+                    model = ExponentialSmoothing(train, use_boxcox=0, trend="add", seasonal="add")
                     fit = model.fit()
                     pred = float(fit.forecast(steps=1))
                     pred_key = f"{ticker}_hw"
-                    pred_date = self.future_business_day(train.index[-1], 1)
+                    pred_date = self.future_business_day(train.index[-1], 1).replace(hour=17, minute=0, second=0)
                     pred_dict = {"pred_date": pred_date, pred_key: pred}
                     forecast_rows.append(pred_dict)
             forecast_df = pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
@@ -329,7 +333,7 @@ class DownloadPredictUpload:
                     forecast_start_timestamp:forecast_end_timestamp, ticker
                 ].copy()
             all_forecast_dfs.append(forecast_df)
-        all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
+        all_forecast_df = pd.concat(all_forecast_dfs, axis=1)
         return all_forecast_df
 
     def get_today_date(self):
@@ -347,7 +351,7 @@ class DownloadPredictUpload:
         and predictions (so that a long running process is not run
         unecessarily).
         """
-        tickers = ["AAPL", "AMZN", "GOOG", "MSFT", "NVDA", "TSLA"]
+        tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
         long_df_filename = os.path.join("input", f"Tickers {self.get_today_date()}.csv")
         date_from = self.past_business_day(pd.Timestamp(self.get_today_date()), 40)
         date_to = self.past_business_day(
