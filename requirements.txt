@@ -18,5 +18,6 @@ seaborn
 tqdm
 dask
 dask[distributed]
-huggingface_hub
-datasets
+python-dateutil
+boto3
+pyyaml

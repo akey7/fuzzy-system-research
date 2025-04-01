@@ -5,13 +5,11 @@ from datetime import datetime
 import pandas as pd
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
-from sklearn.metrics import mean_absolute_error
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from huggingface_hub import login
-from datasets import Dataset
 from polygon import RESTClient
 from dotenv import load_dotenv
 from fsf_arima_models import ArimaModels
+from s3_uploader import S3Uploader
 
 
 class DownloadPredictUpload:
@@ -22,8 +20,6 @@ class DownloadPredictUpload:
         Polygon.io API (for ticker values).
         """
         load_dotenv()
-        hf_token = os.getenv("HF_TOKEN")
-        login(hf_token, add_to_git_credential=True)
         polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
         self.polygon_client = RESTClient(polygon_io_api_key)
         self.hf_dataset = os.getenv("HF_DATASET")
@@ -115,16 +111,20 @@ class DownloadPredictUpload:
         List[List[pd.Timestamp, pd.Timestamp]]
             Returns timestamp ranges.
         """
-        timestamp_ranges = [[start_timestamp, self.future_business_day(start_timestamp, 20)]]
+        timestamp_ranges = [
+            [start_timestamp, self.future_business_day(start_timestamp, 20)]
+        ]
         while timestamp_ranges[-1][1] < pd.Timestamp(end_timestamp.date()):
             next_start_timestamp = self.future_business_day(timestamp_ranges[-1][0], 1)
-            next_end_timestamp = self.future_business_day(next_start_timestamp, num_days)
+            next_end_timestamp = self.future_business_day(
+                next_start_timestamp, num_days
+            )
             timestamp_ranges.append([next_start_timestamp, next_end_timestamp])
         # for timestamp_range in timestamp_ranges:
         #     print(timestamp_range)
         return timestamp_ranges
 
-    def get_tickers(self, tickers, date_from, date_to, delay=5):
+    def get_tickers(self, tickers, date_from, date_to, delay=10):
         """
         Gets ticker data from Polygon.io between the given dates, inclusive
         of the ending date.
@@ -176,6 +176,9 @@ class DownloadPredictUpload:
             time.sleep(delay)
         df = pd.DataFrame(rows)
         df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms").dt.tz_localize(None)
+        df["datetime"] = df["datetime"].apply(
+            lambda x: pd.Timestamp(x).replace(hour=23, minute=59, second=59)
+        )
         df.set_index("datetime", inplace=True)
         df.drop("timestamp", axis=1, inplace=True)
         df.sort_index(inplace=True)
@@ -216,7 +219,7 @@ class DownloadPredictUpload:
         n_workers=6,
     ):
         """
-        Trains ARMA models along each training window implementing a
+        Trains ARIMA models along each training window implementing a
         walk-forward backtesting scheme of model evaluation. Each training
         seeks the optimal (p, q) values for the best performance.
 
@@ -233,10 +236,10 @@ class DownloadPredictUpload:
             month of business days.
 
         max_p : int, optional
-            Max p of ARMA models. Defaults to 2.
+            Max p of ARIMA models. Defaults to 2.
 
         max_q : int, optional
-            Max q of ARMA models. Defaults to 2.
+            Max q of ARIMA models. Defaults to 2.
 
         n_workers : int, optional
             Number of cores to dedicate to training models. Defaults to 6
@@ -276,10 +279,10 @@ class DownloadPredictUpload:
             all_forecast_dfs.append(forecast_df)
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
-    
+
     def train_holt_winters_models(self, df, n_business_days=20, retain_actuals=True):
         """
-        Train Holt-Winters models in a walk-forward method and track the 
+        Train Holt-Winters models in a walk-forward method and track the
         predictions along the way.
 
         Parameters
@@ -314,15 +317,22 @@ class DownloadPredictUpload:
                 forecast_rows = []
                 for start_timestamp, end_timestamp in timestamp_ranges:
                     train = df[ticker]
-                    train = train.loc[start_timestamp:end_timestamp]            
-                    model = ExponentialSmoothing(train, use_boxcox=0)
+                    train = train.loc[start_timestamp:end_timestamp]
+                    train = train.resample("D").ffill().dropna()
+                    model = ExponentialSmoothing(
+                        train, use_boxcox=0, trend="add", seasonal="add"
+                    )
                     fit = model.fit()
                     pred = float(fit.forecast(steps=1))
                     pred_key = f"{ticker}_hw"
-                    pred_date = self.future_business_day(train.index[-1], 1)
+                    pred_date = self.future_business_day(train.index[-1], 1).replace(
+                        hour=17, minute=0, second=0
+                    )
                     pred_dict = {"pred_date": pred_date, pred_key: pred}
                     forecast_rows.append(pred_dict)
-            forecast_df = pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
+            forecast_df = (
+                pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
+            )
             if retain_actuals:
                 forecast_start_timestamp = forecast_df.index[0]
                 forecast_end_timestamp = forecast_df.index[-1]
@@ -330,7 +340,7 @@ class DownloadPredictUpload:
                     forecast_start_timestamp:forecast_end_timestamp, ticker
                 ].copy()
             all_forecast_dfs.append(forecast_df)
-        all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
+        all_forecast_df = pd.concat(all_forecast_dfs, axis=1)
         return all_forecast_df
 
     def get_today_date(self):
@@ -348,7 +358,7 @@ class DownloadPredictUpload:
         and predictions (so that a long running process is not run
         unecessarily).
         """
-        tickers = ["AAPL", "AMZN", "GOOG", "MSFT", "NVDA", "TSLA"]
+        tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
         long_df_filename = os.path.join("input", f"Tickers {self.get_today_date()}.csv")
         date_from = self.past_business_day(pd.Timestamp(self.get_today_date()), 40)
         date_to = self.past_business_day(
@@ -361,18 +371,25 @@ class DownloadPredictUpload:
             long_df = self.get_tickers(tickers, date_from=date_from, date_to=date_to)
             long_df.to_csv(long_df_filename, index=True)
         wide_df = self.pivot_ticker_close_wide(long_df)
-        all_forecasts_df_filename = os.path.join(
+        all_forecasts_df_local_filename = os.path.join(
             "output", f"All Forecasts {self.get_today_date()}.csv"
         )
-        if os.path.exists(all_forecasts_df_filename):
-            all_forecasts_df = pd.read_csv(all_forecasts_df_filename)
+        if os.path.exists(all_forecasts_df_local_filename):
+            all_forecasts_df = pd.read_csv(all_forecasts_df_local_filename)
         else:
             arima_forecasts_df = self.train_arima_models(wide_df)
-            holt_winters_forecasts_df = self.train_holt_winters_models(wide_df, retain_actuals=False)
-            all_forecasts_df = pd.concat([arima_forecasts_df, holt_winters_forecasts_df], axis=1)
-            all_forecasts_df.to_csv(all_forecasts_df_filename, index=True)
-        ds = Dataset.from_pandas(all_forecasts_df)
-        ds.push_to_hub(self.hf_dataset)
+            holt_winters_forecasts_df = self.train_holt_winters_models(
+                wide_df, retain_actuals=False
+            )
+            all_forecasts_df = pd.concat(
+                [arima_forecasts_df, holt_winters_forecasts_df], axis=1
+            )
+            all_forecasts_df.to_csv(all_forecasts_df_local_filename, index=True)
+        s3u = S3Uploader()
+        time_series_space_name = os.getenv("TIME_SERIES_SPACE_NAME")
+        s3u.upload_file(
+            all_forecasts_df_local_filename, time_series_space_name, "all_forecasts.csv"
+        )
 
 
 if __name__ == "__main__":
