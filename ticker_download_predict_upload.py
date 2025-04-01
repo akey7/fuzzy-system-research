@@ -316,12 +316,13 @@ class DownloadPredictUpload:
                 forecast_rows = []
                 for start_timestamp, end_timestamp in timestamp_ranges:
                     train = df[ticker]
-                    train = train.loc[start_timestamp:end_timestamp]            
-                    model = ExponentialSmoothing(train, use_boxcox=0)
+                    train = train.loc[start_timestamp:end_timestamp]
+                    train = train.resample("D").ffill().dropna()
+                    model = ExponentialSmoothing(train, use_boxcox=0, trend="add", seasonal="add")
                     fit = model.fit()
                     pred = float(fit.forecast(steps=1))
                     pred_key = f"{ticker}_hw"
-                    pred_date = self.future_business_day(train.index[-1], 1)
+                    pred_date = self.future_business_day(train.index[-1], 1).replace(hour=17, minute=0, second=0)
                     pred_dict = {"pred_date": pred_date, pred_key: pred}
                     forecast_rows.append(pred_dict)
             forecast_df = pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
@@ -332,7 +333,7 @@ class DownloadPredictUpload:
                     forecast_start_timestamp:forecast_end_timestamp, ticker
                 ].copy()
             all_forecast_dfs.append(forecast_df)
-        all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
+        all_forecast_df = pd.concat(all_forecast_dfs, axis=1)
         return all_forecast_df
 
     def get_today_date(self):
