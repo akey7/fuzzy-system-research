@@ -175,6 +175,9 @@ class DownloadPredictUpload:
             time.sleep(delay)
         df = pd.DataFrame(rows)
         df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms").dt.tz_localize(None)
+        df["datetime"] = df["datetime"].apply(
+            lambda x: pd.Timestamp(x).replace(hour=23, minute=59, second=59)
+        )
         df.set_index("datetime", inplace=True)
         df.drop("timestamp", axis=1, inplace=True)
         df.sort_index(inplace=True)
@@ -347,7 +350,7 @@ class DownloadPredictUpload:
         and predictions (so that a long running process is not run
         unecessarily).
         """
-        tickers = ["AAPL", "AMZN", "GOOG", "MSFT", "NVDA", "TSLA"]
+        tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
         long_df_filename = os.path.join("input", f"Tickers {self.get_today_date()}.csv")
         date_from = self.past_business_day(pd.Timestamp(self.get_today_date()), 40)
         date_to = self.past_business_day(
