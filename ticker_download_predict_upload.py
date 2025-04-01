@@ -6,8 +6,6 @@ import pandas as pd
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from huggingface_hub import login
-from datasets import Dataset
 from polygon import RESTClient
 from dotenv import load_dotenv
 from fsf_arima_models import ArimaModels
@@ -22,8 +20,6 @@ class DownloadPredictUpload:
         Polygon.io API (for ticker values).
         """
         load_dotenv()
-        hf_token = os.getenv("HF_TOKEN")
-        login(hf_token, add_to_git_credential=True)
         polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
         self.polygon_client = RESTClient(polygon_io_api_key)
         self.hf_dataset = os.getenv("HF_DATASET")
@@ -389,8 +385,6 @@ class DownloadPredictUpload:
                 [arima_forecasts_df, holt_winters_forecasts_df], axis=1
             )
             all_forecasts_df.to_csv(all_forecasts_df_local_filename, index=True)
-        # ds = Dataset.from_pandas(all_forecasts_df)
-        # ds.push_to_hub(self.hf_dataset)
         s3u = S3Uploader()
         time_series_space_name = os.getenv("TIME_SERIES_SPACE_NAME")
         s3u.upload_file(
