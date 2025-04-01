@@ -218,7 +218,7 @@ class DownloadPredictUpload:
         n_workers=6,
     ):
         """
-        Trains ARMA models along each training window implementing a
+        Trains ARIMA models along each training window implementing a
         walk-forward backtesting scheme of model evaluation. Each training
         seeks the optimal (p, q) values for the best performance.
 
@@ -235,10 +235,10 @@ class DownloadPredictUpload:
             month of business days.
 
         max_p : int, optional
-            Max p of ARMA models. Defaults to 2.
+            Max p of ARIMA models. Defaults to 2.
 
         max_q : int, optional
-            Max q of ARMA models. Defaults to 2.
+            Max q of ARIMA models. Defaults to 2.
 
         n_workers : int, optional
             Number of cores to dedicate to training models. Defaults to 6
