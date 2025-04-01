@@ -29,7 +29,7 @@ class S3Uploader:
                 bucket_name,
                 remote_filename,
             )
-            print(f"Upload successful!")
+            print(f"Upload of {bucket_name}/{remote_filename} successful!")
         except FileNotFoundError:
             print("The file was not found")
         except NoCredentialsError:
