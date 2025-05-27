@@ -280,69 +280,6 @@ class DownloadPredictUpload:
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
 
-    def train_holt_winters_models(self, df, n_business_days=20, retain_actuals=True):
-        """
-        Train Holt-Winters models in a walk-forward method and track the
-        predictions along the way.
-
-        Parameters
-        ----------
-        df : pd.DataFrame
-            The wide-format dataframe that contains ticker adjusted close
-            prices.
-
-        n_business_days : int, optional
-            The length of the training windows in number of business days,
-            excluding holidays. Defaults to 20.
-
-        retain_actuals : bool, optional
-            If True (the default) returns the actual value columns alongside
-            the predictions. If False, simply returns the predictions only.
-
-        Returns
-        -------
-        pd.DataFrame
-            A DataFrame of predicted values along the walk-forward pattern.
-        """
-        all_forecast_dfs = []
-        timestamp_ranges = self.training_window_start_end(
-            df.index[0],
-            df.index[-1],
-            n_business_days,
-        )
-        tickers = [x for x in df.columns if "_" not in x]
-        for ticker in tickers:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore")
-                forecast_rows = []
-                for start_timestamp, end_timestamp in timestamp_ranges:
-                    train = df[ticker]
-                    train = train.loc[start_timestamp:end_timestamp]
-                    train = train.resample("D").ffill().dropna()
-                    model = ExponentialSmoothing(
-                        train, use_boxcox=0, trend="add", seasonal="add"
-                    )
-                    fit = model.fit()
-                    pred = float(fit.forecast(steps=1))
-                    pred_key = f"{ticker}_hw"
-                    pred_date = self.future_business_day(train.index[-1], 1).replace(
-                        hour=17, minute=0, second=0
-                    )
-                    pred_dict = {"pred_date": pred_date, pred_key: pred}
-                    forecast_rows.append(pred_dict)
-            forecast_df = (
-                pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
-            )
-            if retain_actuals:
-                forecast_start_timestamp = forecast_df.index[0]
-                forecast_end_timestamp = forecast_df.index[-1]
-                forecast_df[ticker] = df.loc[
-                    forecast_start_timestamp:forecast_end_timestamp, ticker
-                ].copy()
-            all_forecast_dfs.append(forecast_df)
-        all_forecast_df = pd.concat(all_forecast_dfs, axis=1)
-        return all_forecast_df
-
     def get_today_date(self):
         """
         Return today's date as a YYYY-MM-DD string.
@@ -374,17 +311,9 @@ class DownloadPredictUpload:
         all_forecasts_df_local_filename = os.path.join(
             "output", f"All Forecasts {self.get_today_date()}.csv"
         )
-        if os.path.exists(all_forecasts_df_local_filename):
-            all_forecasts_df = pd.read_csv(all_forecasts_df_local_filename)
-        else:
+        if not os.path.exists(all_forecasts_df_local_filename):
             arima_forecasts_df = self.train_arima_models(wide_df)
-            holt_winters_forecasts_df = self.train_holt_winters_models(
-                wide_df, retain_actuals=False
-            )
-            all_forecasts_df = pd.concat(
-                [arima_forecasts_df, holt_winters_forecasts_df], axis=1
-            )
-            all_forecasts_df.to_csv(all_forecasts_df_local_filename, index=True)
+            arima_forecasts_df.to_csv(all_forecasts_df_local_filename, index=True)
         s3u = S3Uploader()
         time_series_space_name = os.getenv("TIME_SERIES_SPACE_NAME")
         s3u.upload_file(
