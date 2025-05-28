@@ -103,7 +103,7 @@ class TickerDownloadManager:
         if not os.path.exists(directory):
             raise FileNotFoundError(f"Directory '{directory}' does not exist")
         if not extension.startswith("."):
-            extension = "." + extension
+            extension = f".{extension}"
         pattern = os.path.join(directory, f"*{extension}")
         files = glob.glob(pattern)
         files = [f for f in files if os.path.isfile(f)]
@@ -117,10 +117,15 @@ class TickerDownloadManager:
         if use_cache:
             latest_filename = self.get_files_by_extension_sorted(
                 self.download_folder_name, "csv"
-            )
-            print(latest_filename)
+            )[0]
+            df = pd.read_csv(latest_filename)
+            start_date = df["datetime"].min()
+            end_date = df["datetime"].max()
+            return df, start_date, end_date
 
 
 if __name__ == "__main__":
     dm = TickerDownloadManager()
-    dm.get_latest_month_of_tickers()
+    df, start_date, end_date = dm.get_latest_month_of_tickers()
+    print(f"{start_date} to {end_date}")
+    print(df.head())
