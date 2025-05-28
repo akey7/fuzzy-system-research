@@ -1,11 +1,11 @@
 import os
 import time
 import pandas as pd
-from polygon import RESTClient
 from dotenv import load_dotenv
 from fsf_arima_models import ArimaModels
 from s3_uploader import S3Uploader
 from date_manager import DateManager
+from ticker_download_manager import TickerDownloadManager
 
 
 class DownloadPredictUpload:
@@ -15,11 +15,9 @@ class DownloadPredictUpload:
         holidays, logging into HuggingFace, and getting a Client for
         Polygon.io API (for ticker values).
         """
-        load_dotenv()
-        polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
-        self.polygon_client = RESTClient(polygon_io_api_key)
-        self.hf_dataset = os.getenv("HF_DATASET")
+        monthly_download_folder = os.path.join("input", "monthly")
         self.dm = DateManager()
+        self.tdm = TickerDownloadManager(monthly_download_folder)
 
     def training_window_start_end(self, start_timestamp, end_timestamp, num_days=20):
         """
@@ -156,24 +154,14 @@ class DownloadPredictUpload:
 
     def run(self):
         """
-        Download ticker data from Polygon (if needed), process it, and
-        upload it to HuggingFace for the front end. Manage caches of
+        Download or read cached ticker data from Polygon, process it, and
+        upload it to DigitalOcean for transfer to the front end. Manage caches of
         stock tickers (so that the Polygon API is not accessed unnecessarily)
         and predictions (so that a long running process is not run
         unecessarily).
         """
-        tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
-        long_df_filename = os.path.join("input", f"Tickers {self.dm.get_today_date()}.csv")
-        date_from = self.dm.past_business_day(pd.Timestamp(self.dm.get_today_date()), 40)
-        date_to = self.dm.past_business_day(
-            pd.Timestamp(self.dm.get_today_date()), 1
-        ).replace(hour=23, minute=59, second=59)
-        print(date_from, date_to)
-        if os.path.exists(long_df_filename):
-            long_df = pd.read_csv(long_df_filename)
-        else:
-            long_df = self.get_tickers(tickers, date_from=date_from, date_to=date_to)
-            long_df.to_csv(long_df_filename, index=True)
+        long_df, start_date, end_date = self.tdm.get_latest_month_of_tickers()
+        print(f"{start_date} to {end_date}")
         wide_df = self.pivot_ticker_close_wide(long_df)
         all_forecasts_df_local_filename = os.path.join(
             "output", f"All Forecasts {self.dm.get_today_date()}.csv"

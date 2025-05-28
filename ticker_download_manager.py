@@ -2,11 +2,16 @@ import os
 import glob
 import time
 import pandas as pd
+from dotenv import load_dotenv
+from polygon import RESTClient
 from date_manager import DateManager
 
 
 class TickerDownloadManager:
     def __init__(self, download_folder_name):
+        load_dotenv()
+        polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
+        self.polygon_client = RESTClient(polygon_io_api_key)
         self.dm = DateManager()
         self.download_folder_name = download_folder_name
         self.tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
@@ -114,6 +119,19 @@ class TickerDownloadManager:
             return [os.path.basename(f) for f in files]
 
     def get_latest_month_of_tickers(self, use_cache=True):
+        """
+        Retrieve the latest month of tickers.
+
+        Parameters
+        ----------
+        use_cache : bool
+            If True, does not call API. Rather, it uses the most recent download
+
+        Returns
+        -------
+        Tuple[pd.DataFrame, str, str]
+            Returns the latest dataframe, start date, and end date.
+        """
         if use_cache:
             latest_filename = self.get_files_by_extension_sorted(
                 self.download_folder_name, "csv"
@@ -122,10 +140,25 @@ class TickerDownloadManager:
             start_date = df["datetime"].min()
             end_date = df["datetime"].max()
             return df, start_date, end_date
+        else:
+            date_from = self.dm.past_business_day(
+                pd.Timestamp(self.dm.get_today_date()), 40
+            )
+            date_to = self.dm.past_business_day(
+                pd.Timestamp(self.dm.get_today_date()), 1
+            ).replace(hour=23, minute=59, second=59)
+            long_df_filename = os.path.join(
+                self.download_folder_name, f"Tickers {self.dm.get_today_date()}.csv"
+            )
+            long_df = self.download_tickers(
+                self.tickers, date_from=date_from, date_to=date_to
+            )
+            long_df.to_csv(long_df_filename, index=True)
+            return long_df, date_from, date_to
 
 
 if __name__ == "__main__":
     dm = TickerDownloadManager(os.path.join("input", "monthly"))
-    df, start_date, end_date = dm.get_latest_month_of_tickers()
+    df, start_date, end_date = dm.get_latest_month_of_tickers(use_cache=False)
     print(f"{start_date} to {end_date}")
     print(df.head())
