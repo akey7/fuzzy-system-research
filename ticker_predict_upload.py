@@ -132,6 +132,7 @@ class TickerPredictUpload:
                 am = ArimaModels(n_workers=n_workers)
                 ticker_ts = df[ticker]
                 ticker_ts = ticker_ts.loc[start_timestamp:end_timestamp]
+                ticker_ts = ticker_ts.asfreq("B")  # Business day frequency
                 pred_date, pred = am.fit(
                     ticker_ts, max_p=max_p, max_q=max_q, train_len=10
                 )
