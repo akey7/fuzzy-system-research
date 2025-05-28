@@ -159,10 +159,3 @@ class TickerDownloadManager:
             )
             long_df.to_csv(long_df_filename, index=True)
             return long_df, date_from, date_to
-
-
-if __name__ == "__main__":
-    dm = TickerDownloadManager(os.path.join("input", "monthly"))
-    df, start_date, end_date = dm.get_latest_tickers(use_cache=False)
-    print(f"{start_date} to {end_date}")
-    print(df.head())
