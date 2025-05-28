@@ -118,12 +118,16 @@ class TickerDownloadManager:
         else:
             return [os.path.basename(f) for f in files]
 
-    def get_latest_month_of_tickers(self, use_cache=True):
+    def get_latest_tickers(self, days_in_past=40, use_cache=True):
         """
         Retrieve the latest month of tickers.
 
         Parameters
         ----------
+        days_in_past : int
+            The number of days in past to retrieve. Defaults to 40
+            (2 business months.)
+
         use_cache : bool
             If True, does not call API. Rather, it uses the most recent download
 
@@ -142,7 +146,7 @@ class TickerDownloadManager:
             return df, start_date, end_date
         else:
             date_from = self.dm.past_business_day(
-                pd.Timestamp(self.dm.get_today_date()), 40
+                pd.Timestamp(self.dm.get_today_date()), days_in_past
             )
             date_to = self.dm.past_business_day(
                 pd.Timestamp(self.dm.get_today_date()), 1
@@ -159,6 +163,6 @@ class TickerDownloadManager:
 
 if __name__ == "__main__":
     dm = TickerDownloadManager(os.path.join("input", "monthly"))
-    df, start_date, end_date = dm.get_latest_month_of_tickers(use_cache=False)
+    df, start_date, end_date = dm.get_latest_tickers(use_cache=False)
     print(f"{start_date} to {end_date}")
     print(df.head())

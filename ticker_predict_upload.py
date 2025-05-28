@@ -159,7 +159,7 @@ class TickerPredictUpload:
         and predictions (so that a long running process is not run
         unecessarily).
         """
-        long_df, start_date, end_date = self.tdm.get_latest_month_of_tickers()
+        long_df, start_date, end_date = self.tdm.get_latest_tickers()
         print(f"{start_date} to {end_date}")
         wide_df = self.pivot_ticker_close_wide(long_df)
         all_forecasts_df_local_filename = os.path.join(
