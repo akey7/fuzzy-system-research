@@ -236,7 +236,7 @@ class ArimaModels:
         best_p, best_q = (
             train_result.rank().loc[:, ["rmse", "mean_bic"]].mean(1).idxmin()
         )
-        print(best_p, best_q)
+        # print(best_p, best_q)
         best_arima_model = tsa.ARIMA(endog=ts, order=(best_p, 0, best_q)).fit()
         return best_arima_model
 
