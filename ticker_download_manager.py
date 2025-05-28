@@ -6,9 +6,9 @@ from date_manager import DateManager
 
 
 class TickerDownloadManager:
-    def __init__(self):
+    def __init__(self, download_folder_name):
         self.dm = DateManager()
-        self.download_folder_name = os.path.join("input", "monthly")
+        self.download_folder_name = download_folder_name
         self.tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
 
     def download_tickers(self, tickers, date_from, date_to, delay=10):
@@ -125,7 +125,7 @@ class TickerDownloadManager:
 
 
 if __name__ == "__main__":
-    dm = TickerDownloadManager()
+    dm = TickerDownloadManager(os.path.join("input", "monthly"))
     df, start_date, end_date = dm.get_latest_month_of_tickers()
     print(f"{start_date} to {end_date}")
     print(df.head())
