@@ -77,7 +77,7 @@ class DownloadPredictUpload:
 
         delay: int, optional
             Seconds to wait between successive API calls for the tickers.
-            If not specifed defaults to 5 seconds.
+            If not specifed defaults to 10 seconds.
 
         Returns
         -------
@@ -107,7 +107,7 @@ class DownloadPredictUpload:
                         "transactions": a.transactions,
                     }
                 )
-            print(f"{ticker}. Acquired {len(rows)} so far. Sleeping 5 seconds...")
+            print(f"{ticker}. Acquired {len(rows)} so far. Sleeping {delay} seconds...")
             time.sleep(delay)
         df = pd.DataFrame(rows)
         df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms").dt.tz_localize(None)
