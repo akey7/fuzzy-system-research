@@ -8,7 +8,7 @@ from date_manager import DateManager
 from ticker_download_manager import TickerDownloadManager
 
 
-class DownloadPredictUpload:
+class TickerPredictUpload:
     def __init__(self):
         """
         Instantiate the by preparing the custom business day that skips
@@ -177,5 +177,5 @@ class DownloadPredictUpload:
 
 
 if __name__ == "__main__":
-    dpu = DownloadPredictUpload()
-    dpu.run()
+    tpu = TickerPredictUpload()
+    tpu.run()
