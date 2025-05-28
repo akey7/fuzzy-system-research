@@ -215,13 +215,6 @@ class DownloadPredictUpload:
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
 
-    def get_today_date(self):
-        """
-        Return today's date as a YYYY-MM-DD string.
-        """
-        today = datetime.now()
-        return today.strftime("%Y-%m-%d")
-
     def run(self):
         """
         Download ticker data from Polygon (if needed), process it, and
@@ -231,10 +224,10 @@ class DownloadPredictUpload:
         unecessarily).
         """
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
-        long_df_filename = os.path.join("input", f"Tickers {self.get_today_date()}.csv")
-        date_from = self.dm.past_business_day(pd.Timestamp(self.get_today_date()), 40)
+        long_df_filename = os.path.join("input", f"Tickers {self.dm.get_today_date()}.csv")
+        date_from = self.dm.past_business_day(pd.Timestamp(self.dm.get_today_date()), 40)
         date_to = self.dm.past_business_day(
-            pd.Timestamp(self.get_today_date()), 1
+            pd.Timestamp(self.dm.get_today_date()), 1
         ).replace(hour=23, minute=59, second=59)
         print(date_from, date_to)
         if os.path.exists(long_df_filename):
@@ -244,7 +237,7 @@ class DownloadPredictUpload:
             long_df.to_csv(long_df_filename, index=True)
         wide_df = self.pivot_ticker_close_wide(long_df)
         all_forecasts_df_local_filename = os.path.join(
-            "output", f"All Forecasts {self.get_today_date()}.csv"
+            "output", f"All Forecasts {self.dm.get_today_date()}.csv"
         )
         if not os.path.exists(all_forecasts_df_local_filename):
             arima_forecasts_df = self.train_arima_models(wide_df)

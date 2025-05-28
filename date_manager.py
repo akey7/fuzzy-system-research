@@ -1,3 +1,4 @@
+from datetime import datetime
 import pandas as pd
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
@@ -7,6 +8,13 @@ class DateManager:
         cal = USFederalHolidayCalendar()
         holidays = cal.holidays()
         self.cbd = CustomBusinessDay(holidays=holidays)
+
+    def get_today_date(self):
+        """
+        Return today's date as a YYYY-MM-DD string.
+        """
+        today = datetime.now()
+        return today.strftime("%Y-%m-%d")
 
     def past_business_day(self, reference_date, business_days_past):
         """
