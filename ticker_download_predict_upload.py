@@ -1,15 +1,12 @@
-import warnings
 import os
 import time
 from datetime import datetime
 import pandas as pd
-from pandas.tseries.offsets import CustomBusinessDay
-from pandas.tseries.holiday import USFederalHolidayCalendar
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from polygon import RESTClient
 from dotenv import load_dotenv
 from fsf_arima_models import ArimaModels
 from s3_uploader import S3Uploader
+from date_manager import DateManager
 
 
 class DownloadPredictUpload:
@@ -23,69 +20,7 @@ class DownloadPredictUpload:
         polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
         self.polygon_client = RESTClient(polygon_io_api_key)
         self.hf_dataset = os.getenv("HF_DATASET")
-        cal = USFederalHolidayCalendar()
-        holidays = cal.holidays()
-        self.cbd = CustomBusinessDay(holidays=holidays)
-
-    def past_business_day(self, reference_date, business_days_past):
-        """
-        Calculates the business date a specified number of business days in the past,
-        skipping US federal holidays.
-
-        Parameters
-        ----------
-        reference_date : pd.Timestamp
-            Reference date to calculate days from.
-
-        business_days_past : int
-            The number of business days in the past.
-
-        Returns
-        -------
-        pd.Timestamp
-            The calculated past business date.
-        """
-        return reference_date - (self.cbd * business_days_past)
-
-    def future_business_day(self, reference_date, business_days_ahead):
-        """
-        Calculates the business date a specified number of business days in the future,
-        skipping US federal holidays.
-
-        Parameters
-        ----------
-        reference_date : pd.Timestamp
-            Reference date to calculate days from.
-
-        business_days_ahead : int
-            The number of business days in the future.
-
-        Returns
-        -------
-        pd.Timestamp
-            The calculated future business date.
-        """
-        return reference_date + (self.cbd * business_days_ahead)
-
-    def create_business_day_range(self, reference_date, num_days):
-        """
-        Creates a range of business days starting from a given date,
-        skipping US federal holidays.
-
-        Parameters
-        ----------
-        start_date : pd.Timestamp
-            The starting date
-
-        num_days : int
-            The number of business days to generate.
-
-        Returns
-        -------
-        pd.DatetimeIndex
-            A DatetimeIndex containing the range of business days.
-        """
-        return pd.date_range(start=reference_date, periods=num_days, freq=self.cbd)
+        self.dm = DateManager()
 
     def training_window_start_end(self, start_timestamp, end_timestamp, num_days=20):
         """
@@ -112,11 +47,11 @@ class DownloadPredictUpload:
             Returns timestamp ranges.
         """
         timestamp_ranges = [
-            [start_timestamp, self.future_business_day(start_timestamp, 20)]
+            [start_timestamp, self.dm.future_business_day(start_timestamp, 20)]
         ]
         while timestamp_ranges[-1][1] < pd.Timestamp(end_timestamp.date()):
-            next_start_timestamp = self.future_business_day(timestamp_ranges[-1][0], 1)
-            next_end_timestamp = self.future_business_day(
+            next_start_timestamp = self.dm.future_business_day(timestamp_ranges[-1][0], 1)
+            next_end_timestamp = self.dm.future_business_day(
                 next_start_timestamp, num_days
             )
             timestamp_ranges.append([next_start_timestamp, next_end_timestamp])
