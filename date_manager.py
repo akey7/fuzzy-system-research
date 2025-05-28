@@ -3,6 +3,7 @@ import pandas as pd
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
 
+
 class DateManager:
     def __init__(self):
         cal = USFederalHolidayCalendar()
@@ -75,4 +76,3 @@ class DateManager:
             A DatetimeIndex containing the range of business days.
         """
         return pd.date_range(start=reference_date, periods=num_days, freq=self.cbd)
-
