@@ -232,8 +232,8 @@ class DownloadPredictUpload:
         """
         tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
         long_df_filename = os.path.join("input", f"Tickers {self.get_today_date()}.csv")
-        date_from = self.past_business_day(pd.Timestamp(self.get_today_date()), 40)
-        date_to = self.past_business_day(
+        date_from = self.dm.past_business_day(pd.Timestamp(self.get_today_date()), 40)
+        date_to = self.dm.past_business_day(
             pd.Timestamp(self.get_today_date()), 1
         ).replace(hour=23, minute=59, second=59)
         print(date_from, date_to)
