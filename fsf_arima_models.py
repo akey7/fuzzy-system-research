@@ -6,6 +6,7 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 import numpy as np
 from numpy.linalg import LinAlgError
 import statsmodels.tsa.api as tsa
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from sklearn.metrics import mean_squared_error
 
 
@@ -236,8 +237,10 @@ class ArimaModels:
         best_p, best_q = (
             train_result.rank().loc[:, ["rmse", "mean_bic"]].mean(1).idxmin()
         )
-        print(best_p, best_q)
-        best_arima_model = tsa.ARIMA(endog=ts, order=(best_p, 0, best_q)).fit()
+        # print(best_p, best_q)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            best_arima_model = tsa.ARIMA(endog=ts, order=(best_p, 0, best_q)).fit()
         return best_arima_model
 
     def predict(self, orginal_ts):

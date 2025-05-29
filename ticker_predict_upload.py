@@ -132,12 +132,13 @@ class TickerPredictUpload:
                 am = ArimaModels(n_workers=n_workers)
                 ticker_ts = df[ticker]
                 ticker_ts = ticker_ts.loc[start_timestamp:end_timestamp]
+                ticker_ts = ticker_ts.asfreq("B")  # Business day frequency
                 pred_date, pred = am.fit(
                     ticker_ts, max_p=max_p, max_q=max_q, train_len=10
                 )
                 pred_key = f"{ticker}_arima"
                 pred_dict = {"pred_date": pred_date, pred_key: pred}
-                print(pred_dict)
+                # print(pred_dict)
                 forecast_rows.append(pred_dict)
             forecast_df = (
                 pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
