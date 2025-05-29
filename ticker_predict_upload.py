@@ -138,7 +138,7 @@ class TickerPredictUpload:
                 )
                 pred_key = f"{ticker}_arima"
                 pred_dict = {"pred_date": pred_date, pred_key: pred}
-                # print(pred_dict)
+                print(pred_dict)
                 forecast_rows.append(pred_dict)
             forecast_df = (
                 pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
