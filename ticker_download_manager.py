@@ -8,7 +8,7 @@ from date_manager import DateManager
 
 
 class TickerDownloadManager:
-    def __init__(self, download_folder_name):
+    def __init__(self, download_folder_name="."):
         load_dotenv()
         polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
         self.polygon_client = RESTClient(polygon_io_api_key)
