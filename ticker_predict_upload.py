@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-from dotenv import load_dotenv
 from fsf_arima_models import ArimaModels
 from s3_uploader import S3Uploader
 from date_manager import DateManager
