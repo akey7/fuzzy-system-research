@@ -14,7 +14,19 @@ class TickerDownloadManager:
         self.polygon_client = RESTClient(polygon_io_api_key)
         self.dm = DateManager()
         self.download_folder_name = download_folder_name
-        self.tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
+        # self.tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
+        self.tickers = [
+            "XBI",
+            "QQQ",
+            "XLE",
+            "VOO",
+            "NVDA",
+            "VXUS",
+            "GLD",
+            "IBIT",
+            "FXE",
+            "ETHA",
+        ]
 
     def download_tickers(self, tickers, date_from, date_to, delay=10):
         """
