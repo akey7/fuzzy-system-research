@@ -8,25 +8,28 @@ from date_manager import DateManager
 
 
 class TickerDownloadManager:
-    def __init__(self, download_folder_name="."):
+    def __init__(self, download_folder_name=".", tickers=None):
         load_dotenv()
         polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
         self.polygon_client = RESTClient(polygon_io_api_key)
         self.dm = DateManager()
         self.download_folder_name = download_folder_name
         # self.tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
-        self.tickers = [
-            "XBI",
-            "QQQ",
-            "XLE",
-            "VOO",
-            "NVDA",
-            "VXUS",
-            "GLD",
-            "IBIT",
-            "FXE",
-            "ETHA",
-        ]
+        if not tickers:
+            self.tickers = [
+                "XBI",
+                "QQQ",
+                "XLE",
+                "VOO",
+                "NVDA",
+                "VXUS",
+                "GLD",
+                "IBIT",
+                "FXE",
+                "ETHA",
+            ]
+        else:
+            self.tickers = tickers
 
     def download_tickers(self, tickers, date_from, date_to, delay=10):
         """
