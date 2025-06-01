@@ -17,6 +17,12 @@ Then install all development and production dependencies:
 pip install -r requirements-dev.txt
 ```
 
+To install only production dependencies:
+
+```
+pip install -r requirements.txt
+```
+
 ### Production Dependencies
 
 To install only the production dependencies, activate the virtual environment and run the following:
@@ -31,15 +37,19 @@ pip install -r requirements.txt
 
 Here are the keys it needs:
 
-1. `POLYGON_IO_API_KEY`: Key to Polygon.io API where stock data comes from.
+1. `POLYGON_IO_API_KEY`: Key to Polygon.io API for stock and index data.
 
-2. `HF_TOKEN`: Token to HuggingFace to upload processed datasets for the front end.
+2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT`: Region, read/write/delete key, key id, and endpoint of the DigitalOcean S3/Spaces bucket. Set as appropriate for development or production environments.
+
+3. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`: Space names for portfolio and ARIMA time series data.
+
+Items 2 and 3 connect the backend to the front end.
 
 ## Purposes of folders and scripts
 
 ### Folders
 
-The folloing folders should be created before running the scripts in the section below. Their content is not committed to GitHub
+The folloing folders should be created before running the scripts in the section below. Their content is not committed to GitHub.
 
 1. `input/`: Holds risk free rate data.
 
@@ -49,7 +59,7 @@ The folloing folders should be created before running the scripts in the section
 
 4. `input/annual_targets/`: Stock data used as targets in `returns_regression.ipynb`.
 
-2. `output/`: Holds output data.
+5. `output/`: Holds output data.
 
 ### Scripts and notebooks
 
