@@ -196,7 +196,60 @@ def optimize_sharpe_ratio(tdm, daily_risk_free_rate, mean_returns, cov_np):
     best_weights = sharpe_ratio_result.x
     opt_risk = np.sqrt(best_weights.dot(cov_np).dot(best_weights))
     opt_return = best_weights.dot(mean_returns)
-    return best_sharpe_ratio, best_weights
+    return best_sharpe_ratio, best_weights, opt_risk, opt_return
+
+
+def plot_optimization_results(
+    optimized_risks,
+    target_returns,
+    tangency_xs,
+    tangency_ys,
+    simulated_risks,
+    simulated_returns,
+    min_var_risk,
+    min_var_return,
+    opt_risk,
+    opt_return,
+):
+    fig, ax = plt.subplots(nrows=1, ncols=1)
+    ax.plot(
+        optimized_risks,
+        target_returns,
+        c="#009E73",
+        zorder=1,
+        label="Efficient Frontier",
+    )
+    ax.plot(tangency_xs, tangency_ys, c="#F0E442", zorder=1, label="Tangency line")
+    ax.scatter(
+        simulated_risks,
+        simulated_returns,
+        alpha=0.1,
+        s=2,
+        c="#0072B2",
+        zorder=10,
+        label="Portfolios",
+    )
+    ax.scatter(
+        [opt_risk],
+        [opt_return],
+        c="#CC79A7",
+        marker="*",
+        s=200,
+        zorder=10,
+        label="Max Sharpe Ratio Portfolio",
+    )
+    ax.scatter(
+        [min_var_risk],
+        [min_var_return],
+        c="#E69F00",
+        zorder=10,
+        label="Min Var Portfolio",
+    )
+    ax.set_xlabel("Daily Risk (σ)")
+    ax.set_ylabel("Daily Returns (%)")
+    ax.set_title("Efficient Frontier")
+    ax.legend()
+    return fig
 
 
 def main():
@@ -238,7 +291,7 @@ def main():
     print(optimized_risks)
     risk_free_rate_data = get_risk_free_rate(dm)
     print(risk_free_rate_data)
-    best_sharpe_ratio, best_weights = optimize_sharpe_ratio(
+    best_sharpe_ratio, best_weights, opt_risk, opt_return = optimize_sharpe_ratio(
         tdm, risk_free_rate_data["daily_risk_free_rate"], mean_returns, cov_np
     )
     print(f"best_sharpe_ratio={best_sharpe_ratio}, best_weights={best_weights}")
@@ -247,6 +300,26 @@ def main():
     ).to_dict()
     print("Best weights %:")
     print(best_weights_pct_dict)
+    tangency_max_risk = max(optimized_risks)
+    tangency_xs = np.linspace(0, tangency_max_risk, 100)
+    tangency_ys = (
+        risk_free_rate_data["daily_risk_free_rate"] + best_sharpe_ratio * tangency_xs
+    )
+    result_fig = plot_optimization_results(
+        optimized_risks,
+        target_returns,
+        tangency_xs,
+        tangency_ys,
+        simulated_risks,
+        simulated_returns,
+        min_var_risk,
+        min_var_return,
+        opt_risk,
+        opt_return,
+    )
+    result_fig_filename = os.path.join("output", "portfolio_optimization_plot.png")
+    result_fig.savefig(result_fig_filename, dpi=300, bbox_inches="tight")
+    print(f"{result_fig_filename} saved!")
 
 
 if __name__ == "__main__":
