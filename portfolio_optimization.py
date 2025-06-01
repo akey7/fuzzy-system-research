@@ -68,14 +68,18 @@ def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
         simulated_risks[i] = simulated_risk
     return simulated_risks, simulated_returns
 
-
-def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
+def calc_weight_bounds(tdm):
     D = len(tdm.tickers)
     # weight_bounds = [(-0.5, None)] * D  # Allows shorting
     # weight_bounds = [(0.0, 1.0) for _ in range(D)]  # No shorting, no leverage
-    weight_bounds = [
+    return [
         (0.0, 4.0 / D) for _ in range(D)
     ]  # Limit how much can be invested in one asset, no shorting, no leverage
+
+
+def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
+    weight_bounds = calc_weight_bounds(tdm)
+    D = len(tdm.tickers)
 
     def get_portfolio_variance(weights):
         return weights.dot(cov_np).dot(weights)
@@ -97,6 +101,38 @@ def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
     min_var_return = min_var_weights.dot(mean_returns)
     print(f"min_var_risk={min_var_risk}, min_var_weights={min_var_weights}, min_var_return={min_var_return}")
     return min_var_risk, min_var_weights, min_var_return
+
+
+def calc_efficient_frontier(tdm, min_var_return, max_simulated_return, mean_returns, cov_np, num_portfolios=100):
+    D = len(tdm.tickers)
+    print(f"Possible returns range: {min_var_return:.4f} to {max_simulated_return:.4f}")
+    target_returns = np.linspace(min_var_return, max_simulated_return, num_portfolios)
+    def target_returns_constraint(weights, target_return):
+        return weights.dot(mean_returns) - target_return
+    def portfolio_weights_constraint(weights):
+        return weights.sum() - 1
+    def get_portfolio_variance(weights):
+        return weights.dot(cov_np).dot(weights)
+    constraints = [
+        {"type": "eq", "fun": target_returns_constraint, "args": [target_returns[0]]},
+        {"type": "eq", "fun": portfolio_weights_constraint},
+    ]
+    optimized_risks = []
+    for target_return in target_returns:
+        constraints[0]["args"] = [target_return]
+        result = minimize(
+            fun=get_portfolio_variance,
+            x0=np.ones(D) / D,
+            method="SLSQP",
+            bounds=calc_weight_bounds(tdm),
+            constraints=constraints,
+        )
+        if result.status == 0:
+            optimized_risks.append(np.sqrt(result.fun))
+        else:
+            optimized_risks.append(np.nan)
+            print(f"Infeasible target return: {target_return:.4f}")
+    return optimized_risks, target_returns
 
 
 def main():
@@ -126,6 +162,11 @@ def main():
     min_var_risk, min_var_weights, min_var_return = calc_min_variance_portfolio(
         tdm, cov_np, mean_returns
     )
+    optimized_risks, target_returns = calc_efficient_frontier(tdm, min_var_return, max(simulated_returns), mean_returns, cov_np)
+    print("Target returns")
+    print(target_returns)
+    print("Optimized risks")
+    print(optimized_risks)
 
 
 if __name__ == "__main__":
