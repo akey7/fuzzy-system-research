@@ -35,11 +35,11 @@ pip install -r requirements.txt
 
 **Never commit the `.env` file to GitHub!** It should never be made publicly accessible because it contains API keys.
 
-Here are the keys it needs:
+Here are the keys the scripts need to function:
 
-1. `POLYGON_IO_API_KEY`: Key to Polygon.io API for stock and index data.
+1. `POLYGON_IO_API_KEY`: Key to Polygon.io API for stock and index data. Obtain from API provider.
 
-2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT`: Region, read/write/delete key, key id, and endpoint of the DigitalOcean S3/Spaces bucket. Set as appropriate for development or production environments.
+2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT`: Region, read/write/delete key, key id, and endpoint of the DigitalOcean S3/Spaces bucket. Set as appropriate for development or production environments. Obtain values from DigitalOcean or AWS environments.
 
 3. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`: Space names for portfolio and ARIMA time series data.
 
