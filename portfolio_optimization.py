@@ -144,6 +144,61 @@ def calc_efficient_frontier(
     return optimized_risks, target_returns
 
 
+def get_risk_free_rate(dm):
+    today_date = dm.get_today_date()
+    risk_free_rate_filename = os.path.join("input", f"Risk Free Rate {today_date}.json")
+    if os.path.exists(risk_free_rate_filename):
+        print("Reading risk-free rate cache...")
+        with open(risk_free_rate_filename, "r", encoding="utf-8") as f:
+            risk_free_rate_data = json.load(f)
+            print(risk_free_rate_data)
+            daily_risk_free_rate = risk_free_rate_data["daily_risk_free_rate"]
+    else:
+        end_date = datetime.datetime.now()
+        start_date = end_date - relativedelta(years=1)
+        print(start_date, end_date)
+        tb3m_df = web.DataReader("DTB3", "fred", start_date, end_date).sort_values(
+            "DATE", ascending=False
+        )
+        risk_free_rate = float(tb3m_df.iloc[0]["DTB3"])
+        daily_risk_free_rate = risk_free_rate / 252
+        risk_free_rate_date = str(tb3m_df.index[0])
+        print(daily_risk_free_rate)
+        risk_free_rate_data = {
+            "risk_free_rate": risk_free_rate,
+            "daily_risk_free_rate": daily_risk_free_rate,
+            "risk_free_rate_date": risk_free_rate_date,
+        }
+        with open(risk_free_rate_filename, "w", encoding="utf-8") as f:
+            json.dump(risk_free_rate_data, f, indent=4)
+        return risk_free_rate_data
+
+
+def optimize_sharpe_ratio(tdm, daily_risk_free_rate, mean_returns, cov_np):
+    D = len(tdm.tickers)
+
+    def negative_sharpe_ratio(weights):
+        mean = weights.dot(mean_returns)
+        risk = np.sqrt(weights.dot(cov_np).dot(weights))
+        return -(mean - daily_risk_free_rate) / risk
+
+    def portfolio_weights_constraint(weights):
+        return weights.sum() - 1
+
+    sharpe_ratio_result = minimize(
+        fun=negative_sharpe_ratio,
+        x0=np.ones(D) / D,
+        method="SLSQP",
+        bounds=calc_weight_bounds(tdm),
+        constraints={"type": "eq", "fun": portfolio_weights_constraint},
+    )
+    best_sharpe_ratio = -sharpe_ratio_result.fun
+    best_weights = sharpe_ratio_result.x
+    opt_risk = np.sqrt(best_weights.dot(cov_np).dot(best_weights))
+    opt_return = best_weights.dot(mean_returns)
+    return best_sharpe_ratio, best_weights
+
+
 def main():
     tdm = TickerDownloadManager(os.path.join("input", "annual"))
     dm = DateManager()
@@ -181,6 +236,12 @@ def main():
     print(target_returns)
     print("Efficient frontier optimized risks")
     print(optimized_risks)
+    risk_free_rate_data = get_risk_free_rate(dm)
+    print(risk_free_rate_data)
+    best_sharpe_ratio, best_weights = optimize_sharpe_ratio(
+        tdm, risk_free_rate_data["daily_risk_free_rate"], mean_returns, cov_np
+    )
+    print(f"best_sharpe_ratio={best_sharpe_ratio}, best_weights={best_weights}")
 
 
 if __name__ == "__main__":
