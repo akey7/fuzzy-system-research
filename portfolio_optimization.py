@@ -171,7 +171,7 @@ def get_risk_free_rate(dm):
         }
         with open(risk_free_rate_filename, "w", encoding="utf-8") as f:
             json.dump(risk_free_rate_data, f, indent=4)
-        return risk_free_rate_data
+    return risk_free_rate_data
 
 
 def optimize_sharpe_ratio(tdm, daily_risk_free_rate, mean_returns, cov_np):
@@ -242,6 +242,11 @@ def main():
         tdm, risk_free_rate_data["daily_risk_free_rate"], mean_returns, cov_np
     )
     print(f"best_sharpe_ratio={best_sharpe_ratio}, best_weights={best_weights}")
+    best_weights_pct_dict = pd.Series(
+        best_weights * 100, index=mean_returns.index
+    ).to_dict()
+    print("Best weights %:")
+    print(best_weights_pct_dict)
 
 
 if __name__ == "__main__":
