@@ -68,6 +68,7 @@ def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
         simulated_risks[i] = simulated_risk
     return simulated_risks, simulated_returns
 
+
 def calc_weight_bounds(tdm):
     D = len(tdm.tickers)
     # weight_bounds = [(-0.5, None)] * D  # Allows shorting
@@ -99,20 +100,28 @@ def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
     min_var_risk = np.sqrt(min_var_result.fun)
     min_var_weights = min_var_result.x
     min_var_return = min_var_weights.dot(mean_returns)
-    print(f"min_var_risk={min_var_risk}, min_var_weights={min_var_weights}, min_var_return={min_var_return}")
+    print(
+        f"min_var_risk={min_var_risk}, min_var_weights={min_var_weights}, min_var_return={min_var_return}"
+    )
     return min_var_risk, min_var_weights, min_var_return
 
 
-def calc_efficient_frontier(tdm, min_var_return, max_simulated_return, mean_returns, cov_np, num_portfolios=100):
+def calc_efficient_frontier(
+    tdm, min_var_return, max_simulated_return, mean_returns, cov_np, num_portfolios=100
+):
     D = len(tdm.tickers)
     print(f"Possible returns range: {min_var_return:.4f} to {max_simulated_return:.4f}")
     target_returns = np.linspace(min_var_return, max_simulated_return, num_portfolios)
+
     def target_returns_constraint(weights, target_return):
         return weights.dot(mean_returns) - target_return
+
     def portfolio_weights_constraint(weights):
         return weights.sum() - 1
+
     def get_portfolio_variance(weights):
         return weights.dot(cov_np).dot(weights)
+
     constraints = [
         {"type": "eq", "fun": target_returns_constraint, "args": [target_returns[0]]},
         {"type": "eq", "fun": portfolio_weights_constraint},
@@ -162,10 +171,15 @@ def main():
     min_var_risk, min_var_weights, min_var_return = calc_min_variance_portfolio(
         tdm, cov_np, mean_returns
     )
-    optimized_risks, target_returns = calc_efficient_frontier(tdm, min_var_return, max(simulated_returns), mean_returns, cov_np)
-    print("Target returns")
+    print(
+        f"min_var_risk={min_var_risk}, min_var_weights={min_var_weights}, min_var_return={min_var_return}"
+    )
+    optimized_risks, target_returns = calc_efficient_frontier(
+        tdm, min_var_return, max(simulated_returns), mean_returns, cov_np
+    )
+    print("Efficient frontier target returns")
     print(target_returns)
-    print("Optimized risks")
+    print("Efficient frontier optimized risks")
     print(optimized_risks)
 
 
