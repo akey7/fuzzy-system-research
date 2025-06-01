@@ -1,5 +1,5 @@
 # fuzzy-system-research
-EDA and other analysis code to accompany the fuzzy-system-finance repo and app. Being split away because otherwise it would complicate deployment.
+Backend code the fuzzy-system-finance app. Contains code to model stock prices with ARIMA and optimize portfolios. Obtains data from Polygon.io. Uploads to front end via an S3 bucket. See a full listing of functioanlity in the table of scripts below.
 
 ## Installation
 
