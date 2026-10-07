@@ -51,6 +51,29 @@ def softmax_random_distribution(D):
 
 
 def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
+    """
+    Monte Carlo simulation of portfolios to plot as dots on the efficient
+    frontier.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Ticker data
+
+    mean_returns : np.array of float
+        Mean returns of the potfolio.
+
+    cov_np : np.array of float
+        Covariance matrix.
+
+    n_portfolios : int, optional
+        Number of portfolios to simulate, defaults to 10,000.
+
+    Returns
+    -------
+    list[float], list[float]
+        Lists of simulated risks and their corresponding returns.
+    """
     simulated_returns = np.zeros(n_portfolios)
     simulated_risks = np.zeros(n_portfolios)
     random_weights = []
@@ -89,6 +112,25 @@ def calc_weight_bounds(tdm):
 
 
 def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
+    """
+    Optimize the minimum variance portfolio.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Ticker data
+
+    cov_np : np.array of float
+        Covariance matrix.
+
+    mean_returns : np.array of float
+        Mean returns of the portfolio assets.
+
+    Returns
+    -------
+    float, float, float
+        Minimum variance risk, minimum variance weights, minimum variance return.
+    """
     weight_bounds = calc_weight_bounds(tdm)
     D = len(tdm.tickers)
 
@@ -291,6 +333,10 @@ def plot_optimization_results(
     opt_risk,
     opt_return,
 ):
+    """
+    Takes output from all other functions in this module to create
+    an efficient frontier plot.
+    """
     fig, ax = plt.subplots(nrows=1, ncols=1)
     ax.plot(
         optimized_risks,
@@ -333,6 +379,10 @@ def plot_optimization_results(
 
 
 def main():
+    """
+    Run the whole ARIMA modeling and portfolio optimization workflow, including
+    uploading results to S3 for the frontend.
+    """
     tdm = TickerDownloadManager(os.path.join("input", "annual"))
     dm = DateManager()
     tpu = TickerPredictUpload()
