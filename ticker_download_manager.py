@@ -50,7 +50,7 @@ class TickerDownloadManager:
 
     def download_tickers(self, tickers, date_from, date_to, delay=10):
         """
-        Gets ticker data from Polygon.io between the given dates, inclusive
+        Gets ticker data from Massive.com between the given dates, inclusive
         of the ending date.
 
         Parameters
