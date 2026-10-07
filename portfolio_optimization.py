@@ -230,6 +230,31 @@ def get_risk_free_rate(dm):
 
 
 def optimize_sharpe_ratio(tdm, daily_risk_free_rate, mean_returns, cov_np):
+    """
+    Optimize a portfolio with the given tickers for the maximum Sharpe ratio
+    given the provided mean returns, daily risk-free rate, and covariance
+    matrix.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Price data for tickers in the given portfolio.
+
+    daily_risk_free_rate : float
+        Daily risk free rate.
+
+    mean_returns : np.array of float
+        The mean returns of the portfolio.
+
+    cov_np : np.array of float
+        Covariance matrix.
+
+    Returns
+    -------
+    best_sharpe_ratio, best_weights, opt_risk, opt_return
+        Optimized Sharpe ratio, portfolio rates, optimal portfolio risk,
+        and optimal return.
+    """
     D = len(tdm.tickers)
 
     def negative_sharpe_ratio(weights):
