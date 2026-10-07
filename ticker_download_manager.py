@@ -27,7 +27,6 @@ class TickerDownloadManager:
             The list of tickers to download. If left as none, will download
             the tickers given below.
         """
-
         load_dotenv()
         polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
         self.polygon_client = RESTClient(polygon_io_api_key)

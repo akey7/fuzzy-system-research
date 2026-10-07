@@ -5,7 +5,16 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 
 
 class DateManager:
+    """
+    Class to manage ranges of bsuiness days according to U.S. Federal
+    Holiday calendar.
+    """
+
     def __init__(self):
+        """
+        Instantiates the class and sets up the calendar of business days
+        to use.
+        """
         cal = USFederalHolidayCalendar()
         holidays = cal.holidays()
         self.cbd = CustomBusinessDay(holidays=holidays)
