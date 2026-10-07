@@ -8,13 +8,31 @@ from date_manager import DateManager
 
 
 class TickerDownloadManager:
+    """
+    Instances of this class manage downloading ticker data from the Massive
+    API over a given range of trading days.
+    """
+
     def __init__(self, download_folder_name=".", tickers=None):
+        """
+        Instantiates the tickers this instance will download and
+        where the data will be saved.
+
+        Parameters
+        ----------
+        download_folder_name : str, optional
+            The path to the download folder. Defaults to working directory.
+
+        tickers : list[str], optional
+            The list of tickers to download. If left as none, will download
+            the tickers given below.
+        """
+
         load_dotenv()
         polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
         self.polygon_client = RESTClient(polygon_io_api_key)
         self.dm = DateManager()
         self.download_folder_name = download_folder_name
-        # self.tickers = ["I:SPX", "QQQ", "VXUS", "GLD"]
         if not tickers:
             self.tickers = [
                 "XBI",
