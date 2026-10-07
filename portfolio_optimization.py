@@ -70,6 +70,16 @@ def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
 
 
 def calc_weight_bounds(tdm):
+    """
+    Calculate a list of bounds for the weight of each asset in the portfolio
+    defined by the given TickerDownloadManager according to the constraints
+    imposed by each of the lines that are commented out.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Where the tickers to be optimized are.
+    """
     D = len(tdm.tickers)
     # weight_bounds = [(-0.5, None)] * D  # Allows shorting
     # weight_bounds = [(0.0, 1.0) for _ in range(D)]  # No shorting, no leverage
@@ -109,6 +119,40 @@ def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
 def calc_efficient_frontier(
     tdm, min_var_return, max_simulated_return, mean_returns, cov_np, num_portfolios=100
 ):
+    """
+    Calculates the efficient frontier for assets in TickerDownloadManager tdm.
+    Essentially calculates the points of the efficient frontier from the
+    minimum variance return and the desired maximum simulated return, with
+    the given mean returns and covariance matrix for the portfolio. Prints
+    error conditions to stdout.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Contains the prices of the tickers in the download manager.
+
+    min_var_return : float
+        The minimum variance return located at one extreme of the frontier
+
+    max_simulated_return : float
+        The maximum simulated return (from the Monte Carlo runs) at the other
+        extreme of the frontier.
+
+    mean_returns : float
+        Mean returns of each asset.
+
+    cov_np : np.array of float
+        Covariance matrix of the portfolio.
+
+    num_portfolios : int, optional
+        The number of portfolio to calculate on the efficient frontier.
+
+    Returns
+    -------
+    tuple[list[float], list[float]]
+        Returns two lists. The first list has optimized risks, the other
+        list has corresponding target returns.
+    """
     D = len(tdm.tickers)
     print(f"Possible returns range: {min_var_return:.4f} to {max_simulated_return:.4f}")
     target_returns = np.linspace(min_var_return, max_simulated_return, num_portfolios)
@@ -145,6 +189,17 @@ def calc_efficient_frontier(
 
 
 def get_risk_free_rate(dm):
+    """
+    Finds the risk-free rates of the 3-month U.S. treasury bill on the business
+    day closest to the current day. Caches the downloaded rates so that repeated
+    calls to this function only retrieve the data when necessary.
+
+    Returns
+    -------
+    dict[str, float]
+        Returns the risk free annual rate, the risk free daily rate, and the date
+        of those rates.
+    """
     today_date = dm.get_today_date()
     risk_free_rate_filename = os.path.join("input", f"Risk Free Rate {today_date}.json")
     if os.path.exists(risk_free_rate_filename):
