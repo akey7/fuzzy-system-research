@@ -51,7 +51,7 @@ Commit both `pyproject.toml` and `uv.lock` whenever dependencies change.
 
 Here are the keys the scripts need to function:
 
-1. `POLYGON_IO_API_KEY`: Key to Massive.com API for stock and index data. Obtain from API provider.
+1. `MASSIVE_API_KEY`: Key to Massive.com API for stock and index data. Obtain from API provider.
 
 2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT`: Region, read/write/delete key, key id, and endpoint of the DigitalOcean S3/Spaces bucket. Set as appropriate for development or production environments. Obtain values from DigitalOcean or AWS environments.
 

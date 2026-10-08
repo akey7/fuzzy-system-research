@@ -22,7 +22,7 @@ Editing the *code* of scripts that read from `input/` or write to `output/` is f
 
 A hobby project (also a portfolio piece) that demonstrates time series modeling and portfolio optimization on familiar financial data. The backend is run **manually, locally, on a Mac mini** (macOS). It:
 
-1. Downloads adjusted open/high/low/close data for a portfolio of stocks, starting one year ago through the current day, plus the daily 3-month U.S. Treasury bill rate (from Massive.com; the API key variable is still named `POLYGON_IO_API_KEY`).
+1. Downloads adjusted open/high/low/close data for a portfolio of stocks, starting one year ago through the current day, plus the daily 3-month U.S. Treasury bill rate (from Massive.com; API key variable `MASSIVE_API_KEY`).
 2. Optimizes portfolio weights for (a) maximum Sharpe ratio, using the current T-bill rate as the risk-free rate, and (b) minimum variance. Also computes the efficient frontier and a Monte Carlo simulation of portfolio risk/return.
 3. Slides a one-month window of prior trading days to train ARIMA models predicting each day's close price, and computes RMSE for those models.
 4. Uploads all ARIMA and optimization results to a DigitalOcean Spaces (S3-compatible) bucket, which the frontend reads.
@@ -76,7 +76,7 @@ Because the human can't have Claude run anything, **any future reorganization is
 
 `.env` variable names (names only; never values):
 
-- `POLYGON_IO_API_KEY` — Massive.com market data API key
+- `MASSIVE_API_KEY` — Massive.com market data API key
 - `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT` — DigitalOcean Spaces region, read/write/delete key, key id, endpoint
 - `PORTFOLIO_OPTIMIZATION_SPACE_NAME`, `TIME_SERIES_SPACE_NAME` — Space names for optimization and ARIMA time series data
 

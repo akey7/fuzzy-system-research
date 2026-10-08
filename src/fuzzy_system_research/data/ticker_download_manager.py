@@ -3,7 +3,7 @@ import glob
 import time
 import pandas as pd
 from dotenv import load_dotenv
-from polygon import RESTClient
+from massive import RESTClient
 from fuzzy_system_research.data.date_manager import DateManager
 
 
@@ -28,8 +28,8 @@ class TickerDownloadManager:
             the tickers given below.
         """
         load_dotenv()
-        polygon_io_api_key = os.getenv("POLYGON_IO_API_KEY")
-        self.polygon_client = RESTClient(polygon_io_api_key)
+        massive_api_key = os.getenv("MASSIVE_API_KEY")
+        self.massive_client = RESTClient(massive_api_key)
         self.dm = DateManager()
         self.download_folder_name = download_folder_name
         if not tickers:
@@ -75,7 +75,7 @@ class TickerDownloadManager:
         """
         rows = []
         for ticker in tickers:
-            for a in self.polygon_client.list_aggs(
+            for a in self.massive_client.list_aggs(
                 ticker=ticker,
                 multiplier=1,
                 timespan="day",
