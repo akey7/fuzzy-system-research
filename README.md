@@ -1,5 +1,5 @@
 # fuzzy-system-research
-Backend code the fuzzy-system-finance app. Contains code to model stock prices with ARIMA and optimize portfolios. Obtains data from Polygon.io. Uploads to front end via an S3 bucket. See a full listing of functioanlity in the table of scripts below.
+Backend code the fuzzy-system-finance app. Contains code to model stock prices with ARIMA and optimize portfolios. Obtains data from Massive.com. Uploads to front end via an S3 bucket. See a full listing of functioanlity in the table of scripts below.
 
 ## Installation
 
@@ -37,7 +37,7 @@ pip install -r requirements.txt
 
 Here are the keys the scripts need to function:
 
-1. `POLYGON_IO_API_KEY`: Key to Polygon.io API for stock and index data. Obtain from API provider.
+1. `POLYGON_IO_API_KEY`: Key to Massive.com API for stock and index data. Obtain from API provider.
 
 2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT`: Region, read/write/delete key, key id, and endpoint of the DigitalOcean S3/Spaces bucket. Set as appropriate for development or production environments. Obtain values from DigitalOcean or AWS environments.
 
@@ -69,7 +69,7 @@ Here is a list of scripts and notebooks with information on if they are to be ex
 | ---------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `portfolio_optimization.py`  | Yes                   | Obtain adjusted close price data for a portfolio of stocks and compute max Sharpe ratio portfolio weights, min variance portfolio weights, efficient frontier, and Monte Carlo simulation of portfolio risks and returns. | Yes                                  |
 | `ticker_predict_upload.py`   | Yes                   | Obtain 2 months of data and fit a month's worth of ARIMA models on the adjusted close prices.                                                                                                                             | Yes                                  |
-| `ticker_download_to_csv.py`  | Yes                   | Download a supported symbol from Polygon.io and put the results into a `.csv` file.                                                                                                                                       | No                                   |
+| `ticker_download_to_csv.py`  | Yes                   | Download a supported symbol from Massive.com and put the results into a `.csv` file.                                                                                                                                       | No                                   |
 | `ticker_download_manager.py` | No                    | Support other scripts by downloading new or retrieving old data from the cache.                                                                                                                                           | No                                   |
 | `s3_uploader.py`             | No                    | Support other scripts with uploads to S3/Spaces buckets on AWS/DigitalOcean.                                                                                                                                              | Yes (other scripts use it to upload) |
 | `fsf_arima_models.py`        | No                    | Supports other scripts by training ARIMS models on price data.                                                                                                                                                            | No                                   |

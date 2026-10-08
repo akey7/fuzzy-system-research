@@ -51,6 +51,29 @@ def softmax_random_distribution(D):
 
 
 def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
+    """
+    Monte Carlo simulation of portfolios to plot as dots on the efficient
+    frontier.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Ticker data
+
+    mean_returns : np.array of float
+        Mean returns of the potfolio.
+
+    cov_np : np.array of float
+        Covariance matrix.
+
+    n_portfolios : int, optional
+        Number of portfolios to simulate, defaults to 10,000.
+
+    Returns
+    -------
+    list[float], list[float]
+        Lists of simulated risks and their corresponding returns.
+    """
     simulated_returns = np.zeros(n_portfolios)
     simulated_risks = np.zeros(n_portfolios)
     random_weights = []
@@ -70,6 +93,16 @@ def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
 
 
 def calc_weight_bounds(tdm):
+    """
+    Calculate a list of bounds for the weight of each asset in the portfolio
+    defined by the given TickerDownloadManager according to the constraints
+    imposed by each of the lines that are commented out.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Where the tickers to be optimized are.
+    """
     D = len(tdm.tickers)
     # weight_bounds = [(-0.5, None)] * D  # Allows shorting
     # weight_bounds = [(0.0, 1.0) for _ in range(D)]  # No shorting, no leverage
@@ -79,6 +112,25 @@ def calc_weight_bounds(tdm):
 
 
 def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
+    """
+    Optimize the minimum variance portfolio.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Ticker data
+
+    cov_np : np.array of float
+        Covariance matrix.
+
+    mean_returns : np.array of float
+        Mean returns of the portfolio assets.
+
+    Returns
+    -------
+    float, float, float
+        Minimum variance risk, minimum variance weights, minimum variance return.
+    """
     weight_bounds = calc_weight_bounds(tdm)
     D = len(tdm.tickers)
 
@@ -109,6 +161,40 @@ def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
 def calc_efficient_frontier(
     tdm, min_var_return, max_simulated_return, mean_returns, cov_np, num_portfolios=100
 ):
+    """
+    Calculates the efficient frontier for assets in TickerDownloadManager tdm.
+    Essentially calculates the points of the efficient frontier from the
+    minimum variance return and the desired maximum simulated return, with
+    the given mean returns and covariance matrix for the portfolio. Prints
+    error conditions to stdout.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Contains the prices of the tickers in the download manager.
+
+    min_var_return : float
+        The minimum variance return located at one extreme of the frontier
+
+    max_simulated_return : float
+        The maximum simulated return (from the Monte Carlo runs) at the other
+        extreme of the frontier.
+
+    mean_returns : float
+        Mean returns of each asset.
+
+    cov_np : np.array of float
+        Covariance matrix of the portfolio.
+
+    num_portfolios : int, optional
+        The number of portfolio to calculate on the efficient frontier.
+
+    Returns
+    -------
+    tuple[list[float], list[float]]
+        Returns two lists. The first list has optimized risks, the other
+        list has corresponding target returns.
+    """
     D = len(tdm.tickers)
     print(f"Possible returns range: {min_var_return:.4f} to {max_simulated_return:.4f}")
     target_returns = np.linspace(min_var_return, max_simulated_return, num_portfolios)
@@ -145,6 +231,17 @@ def calc_efficient_frontier(
 
 
 def get_risk_free_rate(dm):
+    """
+    Finds the risk-free rates of the 3-month U.S. treasury bill on the business
+    day closest to the current day. Caches the downloaded rates so that repeated
+    calls to this function only retrieve the data when necessary.
+
+    Returns
+    -------
+    dict[str, float]
+        Returns the risk free annual rate, the risk free daily rate, and the date
+        of those rates.
+    """
     today_date = dm.get_today_date()
     risk_free_rate_filename = os.path.join("input", f"Risk Free Rate {today_date}.json")
     if os.path.exists(risk_free_rate_filename):
@@ -175,6 +272,31 @@ def get_risk_free_rate(dm):
 
 
 def optimize_sharpe_ratio(tdm, daily_risk_free_rate, mean_returns, cov_np):
+    """
+    Optimize a portfolio with the given tickers for the maximum Sharpe ratio
+    given the provided mean returns, daily risk-free rate, and covariance
+    matrix.
+
+    Parameters
+    ----------
+    tdm : TickerDownloadManager
+        Price data for tickers in the given portfolio.
+
+    daily_risk_free_rate : float
+        Daily risk free rate.
+
+    mean_returns : np.array of float
+        The mean returns of the portfolio.
+
+    cov_np : np.array of float
+        Covariance matrix.
+
+    Returns
+    -------
+    best_sharpe_ratio, best_weights, opt_risk, opt_return
+        Optimized Sharpe ratio, portfolio rates, optimal portfolio risk,
+        and optimal return.
+    """
     D = len(tdm.tickers)
 
     def negative_sharpe_ratio(weights):
@@ -211,6 +333,10 @@ def plot_optimization_results(
     opt_risk,
     opt_return,
 ):
+    """
+    Takes output from all other functions in this module to create
+    an efficient frontier plot.
+    """
     fig, ax = plt.subplots(nrows=1, ncols=1)
     ax.plot(
         optimized_risks,
@@ -253,6 +379,10 @@ def plot_optimization_results(
 
 
 def main():
+    """
+    Run the whole ARIMA modeling and portfolio optimization workflow, including
+    uploading results to S3 for the frontend.
+    """
     tdm = TickerDownloadManager(os.path.join("input", "annual"))
     dm = DateManager()
     tpu = TickerPredictUpload()

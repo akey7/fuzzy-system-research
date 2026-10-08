@@ -9,9 +9,7 @@ from ticker_download_manager import TickerDownloadManager
 class TickerPredictUpload:
     def __init__(self):
         """
-        Instantiate the by preparing the custom business day that skips
-        holidays, logging into HuggingFace, and getting a Client for
-        Polygon.io API (for ticker values).
+        Instantiate the with the proper DateManager and download folder.
         """
         monthly_download_folder = os.path.join("input", "monthly")
         self.dm = DateManager()

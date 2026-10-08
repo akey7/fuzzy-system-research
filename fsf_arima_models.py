@@ -13,7 +13,7 @@ from sklearn.metrics import mean_squared_error
 class ArimaModels:
     def __init__(self, n_workers=6):
         """
-        Initialize a new ArimaModels instance.
+        Initialize a new ArimaModels instance to manage ARIMA models.
 
         Parameters
         ----------
@@ -233,6 +233,18 @@ class ArimaModels:
         Use training results from train_arima and make a final ARIMA
         model that has the best p and q values, as determined by their
         RMSE and BIC metrics.
+
+        Parameters
+        ----------
+        ts : ndarray of float64
+            Log-transformed and differenced timeseries to model.
+
+        train_result : pd.DataFrame
+            DataFrame of training results of ARIMA models.
+
+        Returns
+        -------
+        ARIMA models trained with the best p and q values.
         """
         best_p, best_q = (
             train_result.rank().loc[:, ["rmse", "mean_bic"]].mean(1).idxmin()
