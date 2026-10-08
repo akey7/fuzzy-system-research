@@ -1,0 +1,120 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "Edit",
+      "Bash(ls)",
+      "Bash(ls *)",
+      "Bash(pwd)",
+      "Bash(tree *)",
+      "Bash(wc *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(grep *)",
+      "Bash(rg *)"
+    ],
+    "ask": [
+      "Edit(/.gitignore)",
+      "Bash(mv *)",
+      "Bash(cp *)",
+      "Bash(mkdir *)",
+      "WebFetch"
+    ],
+    "deny": [
+      "Edit(/output/**)",
+      "Edit(/input/**)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(/.git/**)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/doctl/**)",
+
+      "Bash(git)",
+      "Bash(git *)",
+      "Bash(gh *)",
+
+      "Bash(python)",
+      "Bash(python *)",
+      "Bash(python3)",
+      "Bash(python3 *)",
+      "Bash(python3.12 *)",
+      "Bash(*/python *)",
+      "Bash(*/python3 *)",
+      "Bash(ipython)",
+      "Bash(ipython *)",
+      "Bash(jupyter *)",
+      "Bash(pytest *)",
+      "Bash(Rscript *)",
+      "Bash(R *)",
+      "Bash(./*)",
+      "Bash(bash *)",
+      "Bash(sh *)",
+      "Bash(zsh *)",
+      "Bash(source *)",
+      "Bash(eval *)",
+      "Bash(exec *)",
+      "Bash(make *)",
+      "Bash(osascript *)",
+
+      "Bash(conda *)",
+      "Bash(mamba *)",
+      "Bash(micromamba *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)",
+      "Bash(pipx *)",
+      "Bash(uv *)",
+      "Bash(poetry *)",
+
+      "Bash(ruff *)",
+      "Bash(black *)",
+      "Bash(isort *)",
+      "Bash(mypy *)",
+      "Bash(flake8 *)",
+      "Bash(pylint *)",
+
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(ssh *)",
+      "Bash(scp *)",
+      "Bash(rsync *)",
+      "Bash(aws *)",
+      "Bash(s3cmd *)",
+      "Bash(rclone *)",
+      "Bash(doctl *)",
+
+      "Bash(sudo *)",
+      "Bash(rm *)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": false,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyWrite": [
+        "./output",
+        "./input",
+        "./.env",
+        "./.git",
+        "./.claude/settings.json",
+        "./.claude/settings.local.json"
+      ],
+      "denyRead": [
+        "./.env",
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/doctl"
+      ]
+    }
+  }
+}

@@ -179,3 +179,6 @@ cython_debug/
 # Ignore input and output data
 input/
 output/
+
+# Claude Code local config
+.claude/settings.local.json
