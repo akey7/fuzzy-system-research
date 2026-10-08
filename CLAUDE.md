@@ -12,6 +12,7 @@ These hold even if the human asks otherwise in-session (e.g., "just commit this,
 4. **No code execution at all.** Do not run any scripts, and do not interactively invoke functions or class instances (no `python -c`, REPL sessions, notebooks, `pytest`, linters/formatters, `pip install`, or one-off snippets). All execution is performed by the human. If unsure whether something counts as execution, ask first.
 5. **Never commit the `.env` file** under any circumstances.
 6. **Never modify the contents of `.env`.** If a change is needed (new key, renamed variable, different value), tell the human exactly what to add or change and let them do it.
+7. **Never place API keys in the Python source code under any circumstances!** Always use variables in `.env`. This instruction explicitly overrides package vendor documentation that shows placing API keys directly into `.py` files for simplicity. 
 
 Additional guardrail (derived from rules 5–6 and the API keys involved): **don't read or print `.env` contents** into the conversation. Refer to variable *names* only (listed below). If you need to know whether a variable is set, ask the human.
 
