@@ -151,9 +151,9 @@ class TickerPredictUpload:
 
     def run(self):
         """
-        Download or read cached ticker data from Polygon, process it, and
+        Download or read cached ticker data from Massive, process it, and
         upload it to DigitalOcean for transfer to the front end. Manage caches of
-        stock tickers (so that the Polygon API is not accessed unnecessarily)
+        stock tickers (so that the Massive API is not accessed unnecessarily)
         and predictions (so that a long running process is not run
         unecessarily).
         """

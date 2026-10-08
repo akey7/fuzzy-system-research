@@ -53,13 +53,11 @@ The folloing folders should be created before running the scripts in the section
 
 1. `input/`: Holds risk free rate data.
 
-2. `input/annual/`: Holds annual ticker data for use in portfolio optimization and ARIMA.
+2. `input/annual/`: Holds annual ticker data.
 
-3. `input/annual_predictors/`: Index data used as predictors in `returns_regression.ipynb`.
+3. `input/monthly/`: Holds monthly ticker data.
 
-4. `input/annual_targets/`: Stock data used as targets in `returns_regression.ipynb`.
-
-5. `output/`: Holds output data.
+4. `output/`: Holds output data.
 
 ### Scripts and notebooks
 
@@ -74,5 +72,3 @@ Here is a list of scripts and notebooks with information on if they are to be ex
 | `s3_uploader.py`             | No                    | Support other scripts with uploads to S3/Spaces buckets on AWS/DigitalOcean.                                                                                                                                              | Yes (other scripts use it to upload) |
 | `fsf_arima_models.py`        | No                    | Supports other scripts by training ARIMS models on price data.                                                                                                                                                            | No                                   |
 | `date_manager.py`            | No                    | Supports other scripts by managing date and business day calculation operations.                                                                                                                                          | No                                   |
-| `returns_regression.py`      | Yes                   | Experimental. Use market index data as predictors of the prices of four stocks. Does not upload data to front end.                                                                                                        | No                                   |
-
