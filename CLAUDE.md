@@ -35,28 +35,32 @@ The bucket is the **interface contract** with the frontend. Treat the schema, fi
 - Planned work spans technical refactors, UI-facing output changes, quant finance improvements (including more sophisticated time series models than ARIMA), and better presentation. Expect the model and optimizer code to grow and change.
 - Prefer a smaller, curated asset universe over generality. Don't add "any ticker" flexibility unless asked.
 
-## Repo layout (IN FLUX)
+## Repo layout
 
-**The first planned task is reorganizing the files in this repo.** Until that's done and this section is updated, treat the layout below as the *pre-reorganization* state and verify against the actual tree before relying on it. The README may be stale afterward; flag it rather than assuming it is right.
+`src/` layout: code that is **run** lives in `scripts/`, code that is **imported** lives in the `fuzzy_system_research` package under `src/`. Scripts import from the package; the package never imports from `scripts/`. Verify against the actual tree before relying on this.
 
-Current scripts/modules (all flat in the repo root):
+Run from the repo root (paths to `input/` and `output/` are relative to the working directory): `uv run python scripts/<name>.py`.
 
 | File | Role | Run directly? | Uploads? |
 | --- | --- | --- | --- |
-| `portfolio_optimization.py` | Fetch adjusted closes; max-Sharpe and min-variance weights, efficient frontier, Monte Carlo | Yes | Yes |
-| `ticker_predict_upload.py` | Fetch 2 months of data; fit a month's worth of ARIMA models on adjusted closes | Yes | Yes |
-| `ticker_download_to_csv.py` | Download one symbol from Massive.com to CSV | Yes | No |
-| `ticker_download_manager.py` | Download new data or retrieve cached data (support module) | No | No |
-| `s3_uploader.py` | S3/Spaces upload helper (support module) | No | Used by others |
-| `fsf_arima_models.py` | ARIMA training on price data (support module) | No | No |
-| `date_manager.py` | Date and business-day calculations (support module) | No | No |
+| `scripts/portfolio_optimization.py` | `main()`: fetch adjusted closes; max-Sharpe and min-variance weights, efficient frontier, Monte Carlo; write `output/` files and upload | Yes | Yes |
+| `scripts/ticker_predict_upload.py` | Run `TickerPredictUpload` (fit a month's worth of ARIMA models) | Yes | Yes |
+| `scripts/ticker_download_to_csv.py` | Download one symbol from Massive.com to CSV | Yes | No |
+| `src/fuzzy_system_research/data/ticker_download_manager.py` | Download new data or retrieve cached data | No | No |
+| `src/fuzzy_system_research/data/date_manager.py` | Date and business-day calculations | No | No |
+| `src/fuzzy_system_research/optimization/portfolio.py` | Simulation, min-variance, efficient frontier, risk-free rate, max-Sharpe, plotting | No | No |
+| `src/fuzzy_system_research/forecasting/arima_models.py` | ARIMA training on price data | No | No |
+| `src/fuzzy_system_research/forecasting/ticker_predict.py` | `TickerPredictUpload`: walk-forward ARIMA workflow and upload | No | Yes |
+| `src/fuzzy_system_research/storage/s3_uploader.py` | S3/Spaces upload helper | No | Used by others |
+
+`tests/` is reserved for tests (not yet populated).
 
 Data directories (contents are **not** committed to git; the human creates them and populates them by running the scripts):
 
 - `input/` — risk-free rate data; `input/annual/` — annual ticker data; `input/monthly/` — monthly ticker data
 - `output/` — results of runs
 
-Because the human can't have Claude run anything, **a reorganization is a pure code/path refactor.** When doing it:
+Because the human can't have Claude run anything, **any future reorganization is a pure code/path refactor.** When doing it:
 
 1. Propose the target structure and the full old→new file mapping first, and wait for approval before moving anything.
 2. Update every import, relative path, and path constant affected. Pay special attention to anything that builds paths to `input/` and `output/` and to how scripts locate the `.env` file.

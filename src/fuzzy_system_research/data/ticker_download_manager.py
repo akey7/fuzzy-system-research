@@ -4,7 +4,7 @@ import time
 import pandas as pd
 from dotenv import load_dotenv
 from polygon import RESTClient
-from date_manager import DateManager
+from fuzzy_system_research.data.date_manager import DateManager
 
 
 class TickerDownloadManager:
