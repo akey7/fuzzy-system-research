@@ -1,6 +1,5 @@
 import sys
-import pandas as pd
-from ticker_download_manager import TickerDownloadManager
+from fuzzy_system_research.data.ticker_download_manager import TickerDownloadManager
 
 
 def main():

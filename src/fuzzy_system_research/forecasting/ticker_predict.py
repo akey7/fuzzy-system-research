@@ -1,9 +1,9 @@
 import os
 import pandas as pd
-from fsf_arima_models import ArimaModels
-from s3_uploader import S3Uploader
-from date_manager import DateManager
-from ticker_download_manager import TickerDownloadManager
+from fuzzy_system_research.data.date_manager import DateManager
+from fuzzy_system_research.data.ticker_download_manager import TickerDownloadManager
+from fuzzy_system_research.forecasting.arima_models import ArimaModels
+from fuzzy_system_research.storage.s3_uploader import S3Uploader
 
 
 class TickerPredictUpload:
@@ -151,9 +151,9 @@ class TickerPredictUpload:
 
     def run(self):
         """
-        Download or read cached ticker data from Polygon, process it, and
+        Download or read cached ticker data from Massive, process it, and
         upload it to DigitalOcean for transfer to the front end. Manage caches of
-        stock tickers (so that the Polygon API is not accessed unnecessarily)
+        stock tickers (so that the Massive API is not accessed unnecessarily)
         and predictions (so that a long running process is not run
         unecessarily).
         """
@@ -171,8 +171,3 @@ class TickerPredictUpload:
         s3u.upload_file(
             all_forecasts_df_local_filename, time_series_space_name, "all_forecasts.csv"
         )
-
-
-if __name__ == "__main__":
-    tpu = TickerPredictUpload()
-    tpu.run()
