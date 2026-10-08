@@ -66,8 +66,8 @@ Because the human can't have Claude run anything, **a reorganization is a pure c
 
 ## Environment and configuration
 
-- Python 3.12 in a conda env named `fuzzy-system-research`.
-- Dependencies: `requirements.txt` (production) and `requirements-dev.txt` (development). Claude may edit these files, but must not install anything. Tell the human which commands to run.
+- Python 3.13, managed with `uv` (project-local `.venv`; version pinned in `.python-version`).
+- Dependencies: `pyproject.toml` (`dependencies` for production, `[dependency-groups] dev` for development), locked in `uv.lock`. Claude may edit `pyproject.toml`, but must not run `uv` or install anything, and must not hand-edit `uv.lock`. Tell the human which commands to run (`uv lock`, `uv sync`).
 - Never hard-code secrets, bucket names, or endpoints. Everything comes from `.env` via environment variables.
 
 `.env` variable names (names only; never values):

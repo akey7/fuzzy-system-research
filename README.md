@@ -3,33 +3,45 @@ Backend code the fuzzy-system-finance app. Contains code to model stock prices w
 
 ## Installation
 
+This project uses [uv](https://docs.astral.sh/uv/) for Python versions, virtual environments, and dependencies. Install `uv` first (for example, `brew install uv` on macOS). Dependencies are declared in `pyproject.toml`, and `uv.lock` pins the exact versions that were resolved. The project requires Python 3.13 (`.python-version`), which `uv` downloads automatically if it is not already installed.
+
 ### Development Dependencies
 
-This project can be installed into a conda environment. First create the conda environment with:
+Create the `.venv` virtual environment and install production plus development dependencies (the `dev` group is included by default):
 
 ```
-conda create -n fuzzy-system-research python=3.12
-```
-
-Then install all development and production dependencies:
-
-```
-pip install -r requirements-dev.txt
-```
-
-To install only production dependencies:
-
-```
-pip install -r requirements.txt
+uv sync
 ```
 
 ### Production Dependencies
 
-To install only the production dependencies, activate the virtual environment and run the following:
+To install only the production dependencies:
 
 ```
-pip install -r requirements.txt
+uv sync --no-dev
 ```
+
+### Running scripts
+
+Run scripts through `uv` so they use the project environment; there is no need to activate the virtual environment manually:
+
+```
+uv run python portfolio_optimization.py
+```
+
+Run development tools the same way, for example `uv run pytest` or `uv run black .`.
+
+### Managing dependencies
+
+```
+uv add <package>           # add a production dependency
+uv add --dev <package>     # add a development dependency
+uv remove <package>        # remove a dependency
+uv lock --upgrade          # upgrade all packages within the declared constraints
+uv sync                    # bring .venv in line with uv.lock
+```
+
+Commit both `pyproject.toml` and `uv.lock` whenever dependencies change.
 
 ### `.env` file
 
