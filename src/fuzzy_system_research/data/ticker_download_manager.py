@@ -1,5 +1,4 @@
 import os
-import glob
 import time
 import pandas as pd
 from dotenv import load_dotenv
@@ -108,51 +107,16 @@ class TickerDownloadManager:
         df.sort_index(inplace=True)
         return df
 
-    def get_files_by_extension_sorted(self, directory, extension, include_path=True):
+    def get_latest_tickers(
+        self, days_in_past: int = 40, use_cache: bool = True
+    ) -> tuple[pd.DataFrame, str | pd.Timestamp, str | pd.Timestamp]:
         """
-        Returns a list of filenames with a given extension sorted by descending creation date.
+        Retrieve the latest tickers, ending on the business day before today.
 
-        Parameters
-        ----------
-        directory : str
-            Directory path to search for files
-
-        extension : str
-            File extension to filter by (e.g., '.csv', '.txt', 'py')
-
-        include_path : bool, optional
-            If True, returns full file paths; if False, returns only filenames, default False
-
-        Returns
-        -------
-        List[str]
-            List of filenames (or full paths) sorted by creation date (newest first)
-
-        Raises
-        ------
-        FileNotFoundError
-            If the specified directory doesn't exist
-        ValueError
-            If extension is empty or None
-        """
-        if not extension:
-            raise ValueError("Extension cannot be empty or None")
-        if not os.path.exists(directory):
-            raise FileNotFoundError(f"Directory '{directory}' does not exist")
-        if not extension.startswith("."):
-            extension = f".{extension}"
-        pattern = os.path.join(directory, f"*{extension}")
-        files = glob.glob(pattern)
-        files = [f for f in files if os.path.isfile(f)]
-        files.sort(key=lambda x: os.path.getctime(x), reverse=True)
-        if include_path:
-            return files
-        else:
-            return [os.path.basename(f) for f in files]
-
-    def get_latest_tickers(self, days_in_past=40, use_cache=True):
-        """
-        Retrieve the latest month of tickers.
+        Downloads are cached in the download folder in a file named
+        "Tickers YYYY-MM-DD.csv" using today's date. A cache file from an
+        earlier day is never reused, because its data would end before the
+        most recent trading day.
 
         Parameters
         ----------
@@ -161,33 +125,34 @@ class TickerDownloadManager:
             (2 business months.)
 
         use_cache : bool
-            If True, does not call API. Rather, it uses the most recent download
+            If True and today's cache file already exists, does not call the
+            API and reads that file instead. If today's cache file does not
+            exist, downloads new data (and writes today's cache file). If
+            False, always downloads new data and overwrites today's cache file.
 
         Returns
         -------
-        Tuple[pd.DataFrame, str, str]
-            Returns the latest dataframe, start date, and end date.
+        Tuple[pd.DataFrame, str | pd.Timestamp, str | pd.Timestamp]
+            Returns the latest dataframe, start date, and end date. The dates
+            are strings when read from the cache and pd.Timestamps when
+            downloaded.
         """
-        if use_cache:
-            latest_filename = self.get_files_by_extension_sorted(
-                self.download_folder_name, "csv"
-            )[0]
-            df = pd.read_csv(latest_filename)
+        long_df_filename = os.path.join(
+            self.download_folder_name, f"Tickers {self.dm.get_today_date()}.csv"
+        )
+        if use_cache and os.path.exists(long_df_filename):
+            df = pd.read_csv(long_df_filename)
             start_date = df["datetime"].min()
             end_date = df["datetime"].max()
             return df, start_date, end_date
-        else:
-            date_from = self.dm.past_business_day(
-                pd.Timestamp(self.dm.get_today_date()), days_in_past
-            )
-            date_to = self.dm.past_business_day(
-                pd.Timestamp(self.dm.get_today_date()), 1
-            ).replace(hour=23, minute=59, second=59)
-            long_df_filename = os.path.join(
-                self.download_folder_name, f"Tickers {self.dm.get_today_date()}.csv"
-            )
-            long_df = self.download_tickers(
-                self.tickers, date_from=date_from, date_to=date_to
-            )
-            long_df.to_csv(long_df_filename, index=True)
-            return long_df, date_from, date_to
+        date_from = self.dm.past_business_day(
+            pd.Timestamp(self.dm.get_today_date()), days_in_past
+        )
+        date_to = self.dm.past_business_day(
+            pd.Timestamp(self.dm.get_today_date()), 1
+        ).replace(hour=23, minute=59, second=59)
+        long_df = self.download_tickers(
+            self.tickers, date_from=date_from, date_to=date_to
+        )
+        long_df.to_csv(long_df_filename, index=True)
+        return long_df, date_from, date_to
