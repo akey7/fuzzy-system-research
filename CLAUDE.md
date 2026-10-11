@@ -112,6 +112,10 @@ This is the area where wrong answers look plausible, so be explicit and conserva
 
 ### Changing the frontend contract
 
+@INTERFACE_CONTRACT.md
+
+The file above is the authoritative spec of what this backend uploads and the frontend reads. This repo holds the **source of truth**; the frontend repo has an identical mirror. Never change the contract, or any code that alters what it describes, without also updating `INTERFACE_CONTRACT.md` (bump its version, add a changelog entry) and telling the human to copy it unchanged into the frontend repo. Never edit it in only one repo.
+
 The frontend reads what this backend uploads. Before changing any of the following, pause and describe the change and its frontend impact to the human:
 
 - Object keys / file names in the buckets
