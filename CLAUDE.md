@@ -53,7 +53,7 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 | `src/fuzzy_system_research/forecasting/ticker_predict.py` | `TickerPredictUpload`: walk-forward ARIMA workflow and upload | No | Yes |
 | `src/fuzzy_system_research/storage/s3_uploader.py` | S3/Spaces upload helper | No | Used by others |
 
-`tests/` is reserved for tests (not yet populated).
+`tests/` holds pytest tests (in-memory only; no network, S3, `input/`, or `output/`). The human runs them with `uv run pytest` from the repo root.
 
 Data directories (contents are **not** committed to git; the human creates them and populates them by running the scripts):
 

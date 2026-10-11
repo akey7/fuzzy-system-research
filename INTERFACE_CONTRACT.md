@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 5 |
+| **Contract version** | 7 |
 | **Last updated** | 2026-10-11 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -64,7 +64,7 @@ General behavior of every file:
 
 ### Example
 
-Based on a real file produced by the backend for data through 2026-10-09. The `annualization`, `min_var_portfolio`, and `optimum_portfolio.sharpe_ratio` entries, and the arithmetic `annualized_return`, were added in contract version 4. Their values here are **illustrative** (derived by hand from the real run), not output from the backend.
+A real file produced by the backend (contract v4+, data through 2026-10-09):
 
 ```yaml
 annualization:
@@ -74,12 +74,12 @@ date_updated:
   date_from: '2025-10-07'
   date_to: '2026-10-09'
 min_var_portfolio:
-  annualized_return: 12.7
-  risk: 8.9
+  annualized_return: 12.851676947885277
+  risk: 6.89459351276483
 optimum_portfolio:
-  annualized_return: 34.34
+  annualized_return: 34.343418898244956
   risk: 12.439838563729614
-  sharpe_ratio: 2.43
+  sharpe_ratio: 2.4351938928347816
   weights:
     ETHA: 7.59701304408773e-15
     FXE: 3.055998668072217e-14
@@ -247,24 +247,25 @@ The file does **not** contain RMSE, the selected `(p, q)` orders, confidence int
 
 ## Verification status
 
-Checked against real backend output from **v3** (2026-10-11). These items are unchanged in v4:
+Checked against real backend output (2026-10-11):
 
-- `optimization_metadata.yml`: date and timestamp string formats (all quoted), key names, nesting, and the floating-point noise in weights.
-- `portfolio_optimization_plot_data.h5`: group names, dataset names, dtype (`H5T_IEEE_F64LE`), and shapes (100, 1, 1, 10000, 100), from `h5dump -H`.
+- `optimization_metadata.yml` (v5 output): every key in the example above, including the v4 additions, quoted date strings, and floating-point noise in weights. The values are internally consistent: `sharpe_ratio` = (`annualized_return` − `risk_free_rate`) / `risk` = (34.343 − 4.05) / 12.440 = 2.435.
+- `portfolio_optimization_plot_data.h5` (v5 output, `h5dump -A`): the five root attributes with the documented values and types (variable-length UTF-8 strings; `periods_per_year` is `H5T_STD_I64LE`), plus group names, dataset names, dtype (`H5T_IEEE_F64LE`), and shapes (100, 1, 1, 10000, 100).
 - `all_forecasts.csv`: first column `pred_date`, the `T_arima` / `T` naming, and empty actuals in the final row.
 - The "How the forecasts are produced" description matches the backend's `run()` defaults.
+- `.h5` values (v5 output, `h5dump -d`): `max_sharpe_ratio` = (12.4398, 34.3434) and `min_var_portfolio` = (6.89459, 12.8517) equal the YAML `risk` / `annualized_return` of the same run. `tangency_line/ys` starts at 4.05 (= `risk_free_rate`), is evenly spaced (a straight line), and passes through the max Sharpe ratio point with slope `sharpe_ratio`.
+- The annualization formulas and the straight tangency line are covered by the backend's unit tests (`tests/test_annualization.py`).
 
-**Not yet** verified against real v4 output (derived from the code):
+**Not yet** verified against real data (derived from the code):
 
-- The new YAML keys (`annualization`, `optimum_portfolio.sharpe_ratio`, `min_var_portfolio`) and the arithmetic `annualized_return`.
-- The `.h5` root attributes and the annualized values in every dataset.
-- That the `.h5` `max_sharpe_ratio` and `min_var_portfolio` points equal the YAML values, and that the tangency line runs from (0, `risk_free_rate`) with slope `sharpe_ratio`.
 - `NaN` entries in `efficient_frontier/xs` (inferred from the code for infeasible target returns). Readers must handle `NaN` regardless.
 
 ## Changelog
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 7 | 2026-10-11 | Documentation only: recorded verification of the `.h5` point values and tangency line against real output. No change to keys, shapes, units, or meaning. |
+| 6 | 2026-10-11 | Documentation only: replaced the illustrative v4 YAML example with real output and recorded the verification of the v4 YAML keys and `.h5` root attributes. No change to keys, shapes, units, or meaning. |
 | 5 | 2026-10-11 | Bug fix, non-breaking: the tangency line's risk range now ends at the largest **non-NaN** efficient-frontier risk. Before, a `NaN` frontier point could make the whole `tangency_line` `NaN`. Documented that `tangency_line` contains no `NaN`. No change to keys, shapes, or units. |
 | 4 | 2026-10-11 | **Breaking (units).** Every return and risk in the optimization files is now annualized arithmetically (return × 252, risk × √252). `.h5`: every dataset changes from daily % to annualized %, with the same keys and shapes, plus new root attributes describing units. YAML: `optimum_portfolio.annualized_return` changes from compounded to arithmetic (about 40.9 → 34.3 on the 2026-10-09 data). Additive: `optimum_portfolio.sharpe_ratio`, `min_var_portfolio`, `annualization`. `daily_risk_free_rate` kept unchanged. Frontend must: relabel axes as annualized, stop any daily→annual conversion it does, check the `.h5` `annualization` attribute (absent means a pre-v4 daily file), and update any display of `annualized_return`. |
 | 3 | 2026-10-11 | Backend no longer renders a local PNG plot (it was never uploaded). Removed the note about it. No change to uploaded keys, formats, shapes, or units. |

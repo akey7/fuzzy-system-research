@@ -12,7 +12,7 @@ TRADING_DAYS_PER_YEAR = 252
 def annualize_return(
     daily_return: float | np.ndarray | list[float],
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
-) -> np.ndarray:
+) -> np.ndarray | np.float64:
     """
     Arithmetically annualize mean daily simple returns: daily × periods_per_year.
 
@@ -32,8 +32,9 @@ def annualize_return(
 
     Returns
     -------
-    np.ndarray
-        Annualized return(s), same shape as the input (0-d for a scalar).
+    np.ndarray or np.float64
+        Annualized return(s): an array with the same shape as an array-like
+        input, or a NumPy scalar for a scalar input.
     """
     return np.asarray(daily_return, dtype=float) * periods_per_year
 
@@ -41,7 +42,7 @@ def annualize_return(
 def annualize_risk(
     daily_risk: float | np.ndarray | list[float],
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
-) -> np.ndarray:
+) -> np.ndarray | np.float64:
     """
     Annualize the standard deviation of daily returns: daily σ × sqrt(periods_per_year).
 
@@ -59,9 +60,9 @@ def annualize_risk(
 
     Returns
     -------
-    np.ndarray
-        Annualized standard deviation(s), same shape as the input (0-d for a
-        scalar).
+    np.ndarray or np.float64
+        Annualized standard deviation(s): an array with the same shape as an
+        array-like input, or a NumPy scalar for a scalar input.
     """
     return np.asarray(daily_risk, dtype=float) * np.sqrt(periods_per_year)
 
