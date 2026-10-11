@@ -8,6 +8,10 @@ from fuzzy_system_research.data.date_manager import DateManager
 from fuzzy_system_research.data.ticker_download_manager import TickerDownloadManager
 from fuzzy_system_research.forecasting.ticker_predict import TickerPredictUpload
 from fuzzy_system_research.optimization.portfolio import (
+    TRADING_DAYS_PER_YEAR,
+    annualize_return,
+    annualize_risk,
+    annualize_sharpe_ratio,
     calc_efficient_frontier,
     calc_min_variance_portfolio,
     get_risk_free_rate,
@@ -76,30 +80,49 @@ def main():
     tangency_ys = (
         risk_free_rate_data["daily_risk_free_rate"] + best_sharpe_ratio * tangency_xs
     )
+    # Optimization above is done in daily units. Everything written for the
+    # frontend is annualized arithmetically (return × 252, risk × √252), which
+    # preserves the optimal weights and keeps the tangency line straight.
+    annualized_optimum_return = float(annualize_return(opt_return))
+    annualized_optimum_risk = float(annualize_risk(opt_risk))
+    annualized_min_var_return = float(annualize_return(min_var_return))
+    annualized_min_var_risk = float(annualize_risk(min_var_risk))
+    annualized_sharpe_ratio = annualize_sharpe_ratio(best_sharpe_ratio)
+    print("annualized_optimum_return, annualized_optimum_risk, annualized_sharpe_ratio")
+    print(annualized_optimum_return, annualized_optimum_risk, annualized_sharpe_ratio)
     portfolio_optimization_plot_data_filename = os.path.join(
         "output", "portfolio_optimization_plot_data.h5"
     )
     with h5py.File(portfolio_optimization_plot_data_filename, "w") as hf:
+        hf.attrs["return_units"] = "percent_per_year"
+        hf.attrs["risk_units"] = "percent_per_year"
+        hf.attrs["return_type"] = "simple"
+        hf.attrs["annualization"] = "arithmetic"
+        hf.attrs["periods_per_year"] = TRADING_DAYS_PER_YEAR
         efficient_frontier_group = hf.create_group("efficient_frontier")
         tangency_line_group = hf.create_group("tangency_line")
         simulated_portfolios_group = hf.create_group("simulated_portfolios")
         max_sharpe_ratio_group = hf.create_group("max_sharpe_ratio")
         min_var_portfolio_group = hf.create_group("min_var_portfolio")
-        efficient_frontier_group.create_dataset("xs", data=optimized_risks)
-        efficient_frontier_group.create_dataset("ys", data=target_returns)
-        tangency_line_group.create_dataset("xs", data=tangency_xs)
-        tangency_line_group.create_dataset("ys", data=tangency_ys)
-        simulated_portfolios_group.create_dataset("xs", data=simulated_risks)
-        simulated_portfolios_group.create_dataset("ys", data=simulated_returns)
-        max_sharpe_ratio_group.create_dataset("xs", data=[opt_risk])
-        max_sharpe_ratio_group.create_dataset("ys", data=[opt_return])
-        min_var_portfolio_group.create_dataset("xs", data=[min_var_risk])
-        min_var_portfolio_group.create_dataset("ys", data=[min_var_return])
+        efficient_frontier_group.create_dataset(
+            "xs", data=annualize_risk(optimized_risks)
+        )
+        efficient_frontier_group.create_dataset(
+            "ys", data=annualize_return(target_returns)
+        )
+        tangency_line_group.create_dataset("xs", data=annualize_risk(tangency_xs))
+        tangency_line_group.create_dataset("ys", data=annualize_return(tangency_ys))
+        simulated_portfolios_group.create_dataset(
+            "xs", data=annualize_risk(simulated_risks)
+        )
+        simulated_portfolios_group.create_dataset(
+            "ys", data=annualize_return(simulated_returns)
+        )
+        max_sharpe_ratio_group.create_dataset("xs", data=[annualized_optimum_risk])
+        max_sharpe_ratio_group.create_dataset("ys", data=[annualized_optimum_return])
+        min_var_portfolio_group.create_dataset("xs", data=[annualized_min_var_risk])
+        min_var_portfolio_group.create_dataset("ys", data=[annualized_min_var_return])
     print(f"Saved {portfolio_optimization_plot_data_filename}")
-    annualized_optimum_return = ((1 + opt_return / 100) ** 252 - 1) * 100
-    annualized_optimum_risk = opt_risk * np.sqrt(252)
-    print("annualized_optimum_return, annualized_optimum_risk")
-    print(annualized_optimum_return, annualized_optimum_risk)
     space_name = os.getenv("PORTFOLIO_OPTIMIZATION_SPACE_NAME")
     s3u.upload_file(
         portfolio_optimization_plot_data_filename,
@@ -113,10 +136,19 @@ def main():
         },
         "tickers": tdm.tickers,
         "risk_free_rate": risk_free_rate_data,
+        "annualization": {
+            "method": "arithmetic",
+            "periods_per_year": TRADING_DAYS_PER_YEAR,
+        },
         "optimum_portfolio": {
-            "annualized_return": float(annualized_optimum_return),
-            "risk": float(annualized_optimum_risk),
+            "annualized_return": annualized_optimum_return,
+            "risk": annualized_optimum_risk,
+            "sharpe_ratio": annualized_sharpe_ratio,
             "weights": best_weights_pct_dict,
+        },
+        "min_var_portfolio": {
+            "annualized_return": annualized_min_var_return,
+            "risk": annualized_min_var_risk,
         },
     }
     metadata_filename = os.path.join("output", "optimization_metadata.yml")

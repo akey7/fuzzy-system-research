@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 3 |
+| **Contract version** | 4 |
 | **Last updated** | 2026-10-11 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -45,9 +45,15 @@ General behavior of every file:
 
 - **Tickers** are the strings used by Massive.com, e.g. `NVDA`, `QQQ`. At the time of writing the set is `ETHA, FXE, GLD, IBIT, NVDA, QQQ, VOO, VXUS, XBI, XLE`, but **the frontend must not hardcode it**. Read the ticker list from `optimization_metadata.yml` (`tickers`) or from the `all_forecasts.csv` column names. The set can change.
 - **Prices** are daily close prices in US dollars as returned by Massive.com with `adjusted=true`, i.e. adjusted by Massive.com's rules. Treat them as "adjusted close" and do not assume dividend adjustment.
-- **Returns** are **simple** (not log) daily returns, expressed in **percent** (1.5 means 1.5 %), computed from consecutive adjusted closes.
-- **Annualization** uses 252 trading days per year.
-- **Risk** means the standard deviation (σ) of daily returns, in percent per day, unless a field says it is annualized.
+- **Returns** are computed from **simple** (not log) daily returns of consecutive adjusted closes and expressed in **percent** (1.5 means 1.5 %).
+- **Risk** means the standard deviation (σ) of returns, in percent.
+- **Every return and risk uploaded is annualized.** The backend optimizes in daily units and annualizes only when writing files, using 252 trading days per year and **arithmetic** (not compounded) annualization:
+  - annualized return = mean daily return × 252
+  - annualized risk = daily σ × √252
+  - annualized Sharpe ratio = daily Sharpe ratio × √252, which equals (annualized return − annual risk-free rate) / annualized risk
+
+  Arithmetic annualization keeps risk/return relationships linear, so the tangency line is straight, its intercept is the quoted annual risk-free rate, and its slope is the annualized Sharpe ratio. It is not the compounded growth an investor would realize. If user-facing text needs that distinction, say "annualized (arithmetic)" rather than "annual growth".
+- The **only** daily quantity uploaded is `risk_free_rate.daily_risk_free_rate`, kept for backward compatibility and named accordingly.
 - **Dates** are US trading days. Date-only fields are strings in `YYYY-MM-DD` format.
 
 ---
@@ -58,15 +64,22 @@ General behavior of every file:
 
 ### Example
 
-A real file produced by the backend (run for data through 2026-10-09):
+Based on a real file produced by the backend for data through 2026-10-09. The `annualization`, `min_var_portfolio`, and `optimum_portfolio.sharpe_ratio` entries, and the arithmetic `annualized_return`, were added in contract version 4. Their values here are **illustrative** (derived by hand from the real run), not output from the backend.
 
 ```yaml
+annualization:
+  method: arithmetic
+  periods_per_year: 252
 date_updated:
   date_from: '2025-10-07'
   date_to: '2026-10-09'
+min_var_portfolio:
+  annualized_return: 12.7
+  risk: 8.9
 optimum_portfolio:
-  annualized_return: 40.945115872014924
+  annualized_return: 34.34
   risk: 12.439838563729614
+  sharpe_ratio: 2.43
   weights:
     ETHA: 7.59701304408773e-15
     FXE: 3.055998668072217e-14
@@ -109,56 +122,80 @@ Things to notice in the example:
 | `date_updated.date_to` | string `YYYY-MM-DD` | Last trading day of price data used. **This is the "data as of" date to show users.** |
 | `tickers` | list of string | Tickers in the optimized portfolio. Order is not significant. |
 | `risk_free_rate.risk_free_rate` | float | Latest 3-month U.S. Treasury bill rate (FRED series `DTB3`), **annualized, in percent** (4.39 means 4.39 % per year). |
-| `risk_free_rate.daily_risk_free_rate` | float | `risk_free_rate / 252`. **Percent per day**, same units as the daily returns used in the optimization. |
+| `risk_free_rate.daily_risk_free_rate` | float | `risk_free_rate / 252`. **Percent per day**, the rate the backend used internally for its daily optimization. The only daily quantity in the uploaded files; prefer `risk_free_rate` for display. |
 | `risk_free_rate.risk_free_rate_date` | string | Observation date of the rate, formatted as a timestamp string such as `2026-10-08 00:00:00`. Parse the first 10 characters as a date. |
 | `optimum_portfolio.weights` | map ticker → float | Weights of the maximum Sharpe ratio portfolio, **in percent** (a weight of 22.4 means 22.4 %). Contains one key per ticker. |
-| `optimum_portfolio.annualized_return` | float | Expected return of that portfolio, **annualized, in percent**: `((1 + r_daily/100)^252 − 1) × 100`, where `r_daily` is the portfolio's mean daily return in percent. |
-| `optimum_portfolio.risk` | float | Standard deviation of that portfolio's daily returns, **annualized** (daily σ × √252), **in percent**. |
+| `optimum_portfolio.annualized_return` | float | Expected return of the max Sharpe ratio portfolio, **annualized arithmetically, in percent**: mean daily return (%) × 252. *Changed in v4; it was compounded before.* |
+| `optimum_portfolio.risk` | float | Standard deviation of that portfolio's returns, **annualized** (daily σ × √252), **in percent**. |
+| `optimum_portfolio.sharpe_ratio` | float | Annualized Sharpe ratio of that portfolio (dimensionless): daily Sharpe × √252 = (`annualized_return` − `risk_free_rate.risk_free_rate`) / `risk`. *Added in v4.* |
+| `min_var_portfolio.annualized_return` | float | Expected return of the minimum variance portfolio, **annualized arithmetically, in percent**. *Added in v4.* |
+| `min_var_portfolio.risk` | float | Standard deviation of the minimum variance portfolio's returns, **annualized, in percent**. *Added in v4.* |
+| `annualization.method` | string | Always `arithmetic` in v4. Describes how every return and risk in both optimization files was annualized. *Added in v4.* |
+| `annualization.periods_per_year` | int | Trading days per year used for annualization (`252`). *Added in v4.* |
 
 ### Notes
 
 - **Weight noise.** Treat any weight with absolute value below `1e-6` (percent) as zero, and round for display. Never compare a weight to an exact value such as `0` or `40`, and never assume a "zero" weight is written as exactly `0.0`. Do not assume the weights sum to exactly 100; they sum to 100 only within the optimizer's tolerance.
 - The optimization is long-only, weights sum to 100 (within optimizer tolerance), and each weight is currently capped at `4 / (number of tickers)` of the portfolio (40 % with 10 tickers). Those constraints are the optimizer's current settings, not a contractual guarantee. Do not hard-code them in the frontend.
 - Inputs (mean returns and covariance) are estimated from roughly one year of daily data, so the optimum is noisy and sensitive to the window. Say so in user-facing text.
-- Only the **max Sharpe ratio** portfolio's weights are in this file. The minimum variance portfolio appears only as a point in the `.h5` file (risk and return), without weights.
+- Only the **max Sharpe ratio** portfolio's weights are in this file. The minimum variance portfolio has annualized return and risk (here and as a point in the `.h5` file) but no weights.
+- `optimum_portfolio` and `min_var_portfolio` values equal the `max_sharpe_ratio` and `min_var_portfolio` points in the `.h5` file from the same run (same units).
+- **Detecting older files.** A file without an `annualization` key predates v4; its `annualized_return` is compounded and it has no Sharpe ratio or min-variance section.
 
 ---
 
 ## `portfolio_optimization_plot_data.h5`
 
-**Bucket:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Format:** HDF5 (written with `h5py`). The file has five top-level groups. Each group has exactly two datasets named `xs` and `ys`: one-dimensional float64 arrays of equal length within the group. `xs` is the horizontal axis (risk), and `ys` is the vertical axis (return). All values are **daily, in percent**, and the file contains no dates and no ticker names (use `optimization_metadata.yml` for those).
+**Bucket:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Format:** HDF5 (written with `h5py`). The file has five top-level groups. Each group has exactly two datasets named `xs` and `ys`: one-dimensional float64 arrays of equal length within the group. `xs` is the horizontal axis (risk), and `ys` is the vertical axis (return). All values are **annualized (arithmetic), in percent** (see "Shared conventions"), and the file contains no dates and no ticker names (use `optimization_metadata.yml` for those).
+
+### Root attributes (added in v4)
+
+The root group `/` carries attributes that describe the units, so a reader can verify them instead of assuming:
+
+| Attribute | Type | Value in v4 |
+| --- | --- | --- |
+| `return_units` | string | `percent_per_year` |
+| `risk_units` | string | `percent_per_year` (annualized standard deviation, in percent) |
+| `return_type` | string | `simple` |
+| `annualization` | string | `arithmetic` |
+| `periods_per_year` | int64 | `252` |
+
+**Detecting older files.** A file with **no** `annualization` attribute predates v4 and contains **daily** values in percent. Readers should check this attribute and refuse to plot (or convert explicitly) rather than mixing daily and annualized data.
 
 ### Layout
 
 ```
-/efficient_frontier/xs        float64, shape (100,)    daily risk σ (%) of the minimum-variance portfolio for each target return
-/efficient_frontier/ys        float64, shape (100,)    the 100 target daily returns (%), evenly spaced
-/tangency_line/xs             float64, shape (100,)    daily risk σ (%), evenly spaced from 0
-/tangency_line/ys             float64, shape (100,)    daily return (%): daily_risk_free_rate + max_sharpe_ratio × xs
-/simulated_portfolios/xs      float64, shape (10000,)  daily risk σ (%) of random long-only portfolios (Monte Carlo)
-/simulated_portfolios/ys      float64, shape (10000,)  daily return (%) of those portfolios
-/max_sharpe_ratio/xs          float64, shape (1,)      daily risk σ (%) of the max Sharpe ratio portfolio
-/max_sharpe_ratio/ys          float64, shape (1,)      its daily return (%)
-/min_var_portfolio/xs         float64, shape (1,)      daily risk σ (%) of the minimum variance portfolio
-/min_var_portfolio/ys         float64, shape (1,)      its daily return (%)
+/                             attrs: return_units, risk_units, return_type, annualization, periods_per_year
+/efficient_frontier/xs        float64, shape (100,)    annualized risk σ (%) of the minimum-variance portfolio for each target return
+/efficient_frontier/ys        float64, shape (100,)    the 100 target annualized returns (%), evenly spaced
+/tangency_line/xs             float64, shape (100,)    annualized risk σ (%), evenly spaced from 0
+/tangency_line/ys             float64, shape (100,)    annualized return (%): risk_free_rate + sharpe_ratio × xs
+/simulated_portfolios/xs      float64, shape (10000,)  annualized risk σ (%) of random long-only portfolios (Monte Carlo)
+/simulated_portfolios/ys      float64, shape (10000,)  annualized return (%) of those portfolios
+/max_sharpe_ratio/xs          float64, shape (1,)      annualized risk σ (%) of the max Sharpe ratio portfolio
+/max_sharpe_ratio/ys          float64, shape (1,)      its annualized return (%)
+/min_var_portfolio/xs         float64, shape (1,)      annualized risk σ (%) of the minimum variance portfolio
+/min_var_portfolio/ys         float64, shape (1,)      its annualized return (%)
 ```
+
+In the tangency line formula, `risk_free_rate` and `sharpe_ratio` are the YAML fields `risk_free_rate.risk_free_rate` and `optimum_portfolio.sharpe_ratio` from the same run.
 
 ### Group meanings
 
 | Group | What to draw |
 | --- | --- |
 | `efficient_frontier` | A line. Points run from the minimum variance portfolio's return up to the highest simulated return. |
-| `tangency_line` | A straight line starting at (0, risk-free rate) with slope equal to the max Sharpe ratio. Also called the capital market line. |
+| `tangency_line` | A straight line starting at (0, annual risk-free rate) with slope equal to the annualized max Sharpe ratio. Also called the capital market line. |
 | `simulated_portfolios` | A scatter cloud (about 10,000 points) of random portfolios, to show the feasible region. |
 | `max_sharpe_ratio` | A single marker: the max Sharpe ratio (tangency) portfolio. |
 | `min_var_portfolio` | A single marker: the minimum variance portfolio. |
 
 ### Notes
 
-- **Units differ from the YAML file.** This file is **daily**, while `optimization_metadata.yml` reports **annualized** risk and return for the optimum portfolio. Do not plot one against the other without converting.
+- **Same units as the YAML file.** Since v4, this file and `optimization_metadata.yml` are both annualized (arithmetic) in percent, so YAML values can be plotted directly on the same axes.
 - **`NaN` values.** An `efficient_frontier/xs` entry is `NaN` when the optimizer found no feasible portfolio for that target return. Readers must drop or break the line at `NaN` and must not treat it as an error.
 - **Array lengths** (100 and 10,000) are current settings. Read the shape from the file and do not hard-code them.
-- Suggested axis labels are "Daily Risk (σ)" and "Daily Returns (%)".
+- Suggested axis labels are "Annualized Risk (σ, %)" and "Annualized Return (%)".
 - The backend does no plotting. All visualization of this data is the frontend's responsibility.
 
 ---
@@ -210,22 +247,25 @@ The file does **not** contain RMSE, the selected `(p, q)` orders, confidence int
 
 ## Verification status
 
-Checked against real backend output (2026-10-11):
+Checked against real backend output from **v3** (2026-10-11). These items are unchanged in v4:
 
-- `optimization_metadata.yml`: date and timestamp string formats (all quoted), key names, nesting, units, and the floating-point noise in weights.
+- `optimization_metadata.yml`: date and timestamp string formats (all quoted), key names, nesting, and the floating-point noise in weights.
 - `portfolio_optimization_plot_data.h5`: group names, dataset names, dtype (`H5T_IEEE_F64LE`), and shapes (100, 1, 1, 10000, 100), from `h5dump -H`.
 - `all_forecasts.csv`: first column `pred_date`, the `T_arima` / `T` naming, and empty actuals in the final row.
 - The "How the forecasts are produced" description matches the backend's `run()` defaults.
 
-Still **not** verified against real data:
+**Not yet** verified against real v4 output (derived from the code):
 
-- `NaN` entries in `efficient_frontier/xs`. This is inferred from the code (infeasible target returns); `h5dump -H` shows structure only, not values. Readers must handle `NaN` regardless.
-- The numeric values and units inside the `.h5` datasets (daily, percent). These come from the code.
+- The new YAML keys (`annualization`, `optimum_portfolio.sharpe_ratio`, `min_var_portfolio`) and the arithmetic `annualized_return`.
+- The `.h5` root attributes and the annualized values in every dataset.
+- That the `.h5` `max_sharpe_ratio` and `min_var_portfolio` points equal the YAML values, and that the tangency line runs from (0, `risk_free_rate`) with slope `sharpe_ratio`.
+- `NaN` entries in `efficient_frontier/xs` (inferred from the code for infeasible target returns). Readers must handle `NaN` regardless.
 
 ## Changelog
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 4 | 2026-10-11 | **Breaking (units).** Every return and risk in the optimization files is now annualized arithmetically (return × 252, risk × √252). `.h5`: every dataset changes from daily % to annualized %, with the same keys and shapes, plus new root attributes describing units. YAML: `optimum_portfolio.annualized_return` changes from compounded to arithmetic (about 40.9 → 34.3 on the 2026-10-09 data). Additive: `optimum_portfolio.sharpe_ratio`, `min_var_portfolio`, `annualization`. `daily_risk_free_rate` kept unchanged. Frontend must: relabel axes as annualized, stop any daily→annual conversion it does, check the `.h5` `annualization` attribute (absent means a pre-v4 daily file), and update any display of `annualized_return`. |
 | 3 | 2026-10-11 | Backend no longer renders a local PNG plot (it was never uploaded). Removed the note about it. No change to uploaded keys, formats, shapes, or units. |
 | 2 | 2026-10-11 | Replaced the illustrative YAML example with a real file. Documented floating-point noise in weights (scientific notation, `~1e-14` for zero, `39.99999999999994` at the cap) and reader handling. Recorded verification status. No change to keys, columns, shapes, or units. |
 | 1 | 2026-10-11 | Initial contract, derived from the backend code. |

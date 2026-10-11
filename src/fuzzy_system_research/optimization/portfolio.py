@@ -6,6 +6,92 @@ from scipy.optimize import minimize
 import pandas_datareader as web
 from dateutil.relativedelta import relativedelta
 
+TRADING_DAYS_PER_YEAR = 252
+
+
+def annualize_return(
+    daily_return: float | np.ndarray | list[float],
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
+) -> np.ndarray:
+    """
+    Arithmetically annualize mean daily simple returns: daily × periods_per_year.
+
+    Arithmetic (not compounded) annualization is used so that linear
+    relationships between risk and return are preserved, e.g. the tangency
+    line stays a straight line and the Sharpe ratio scales by
+    sqrt(periods_per_year). Units are preserved, so percent per day becomes
+    percent per year. NaN values pass through unchanged.
+
+    Parameters
+    ----------
+    daily_return : float or array-like of float
+        Mean daily simple return(s).
+
+    periods_per_year : int, optional
+        Trading days per year. Defaults to 252.
+
+    Returns
+    -------
+    np.ndarray
+        Annualized return(s), same shape as the input (0-d for a scalar).
+    """
+    return np.asarray(daily_return, dtype=float) * periods_per_year
+
+
+def annualize_risk(
+    daily_risk: float | np.ndarray | list[float],
+    periods_per_year: int = TRADING_DAYS_PER_YEAR,
+) -> np.ndarray:
+    """
+    Annualize the standard deviation of daily returns: daily σ × sqrt(periods_per_year).
+
+    Assumes daily returns are serially uncorrelated. Units are preserved, so
+    percent per day becomes percent per year. NaN values pass through
+    unchanged.
+
+    Parameters
+    ----------
+    daily_risk : float or array-like of float
+        Standard deviation(s) of daily returns.
+
+    periods_per_year : int, optional
+        Trading days per year. Defaults to 252.
+
+    Returns
+    -------
+    np.ndarray
+        Annualized standard deviation(s), same shape as the input (0-d for a
+        scalar).
+    """
+    return np.asarray(daily_risk, dtype=float) * np.sqrt(periods_per_year)
+
+
+def annualize_sharpe_ratio(
+    daily_sharpe_ratio: float, periods_per_year: int = TRADING_DAYS_PER_YEAR
+) -> float:
+    """
+    Annualize a Sharpe ratio computed from daily returns and a daily
+    risk-free rate: daily Sharpe × sqrt(periods_per_year).
+
+    This equals (annualized return − annualized risk-free rate) / annualized
+    risk when both returns are annualized arithmetically with
+    annualize_return() and risk with annualize_risk().
+
+    Parameters
+    ----------
+    daily_sharpe_ratio : float
+        Sharpe ratio from daily excess returns and daily risk.
+
+    periods_per_year : int, optional
+        Trading days per year. Defaults to 252.
+
+    Returns
+    -------
+    float
+        Annualized Sharpe ratio.
+    """
+    return float(daily_sharpe_ratio * np.sqrt(periods_per_year))
+
 
 def softmax_random_distribution(D):
     """
