@@ -75,7 +75,8 @@ def main():
     ).to_dict()
     print("Best weights %:")
     print(best_weights_pct_dict)
-    tangency_max_risk = max(optimized_risks)
+    # nanmax: infeasible frontier points are NaN and must not propagate.
+    tangency_max_risk = np.nanmax(optimized_risks)
     tangency_xs = np.linspace(0, tangency_max_risk, 100)
     tangency_ys = (
         risk_free_rate_data["daily_risk_free_rate"] + best_sharpe_ratio * tangency_xs

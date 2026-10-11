@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 4 |
+| **Contract version** | 5 |
 | **Last updated** | 2026-10-11 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -168,7 +168,7 @@ The root group `/` carries attributes that describe the units, so a reader can v
 /                             attrs: return_units, risk_units, return_type, annualization, periods_per_year
 /efficient_frontier/xs        float64, shape (100,)    annualized risk σ (%) of the minimum-variance portfolio for each target return
 /efficient_frontier/ys        float64, shape (100,)    the 100 target annualized returns (%), evenly spaced
-/tangency_line/xs             float64, shape (100,)    annualized risk σ (%), evenly spaced from 0
+/tangency_line/xs             float64, shape (100,)    annualized risk σ (%), evenly spaced from 0 to the largest non-NaN efficient_frontier/xs
 /tangency_line/ys             float64, shape (100,)    annualized return (%): risk_free_rate + sharpe_ratio × xs
 /simulated_portfolios/xs      float64, shape (10000,)  annualized risk σ (%) of random long-only portfolios (Monte Carlo)
 /simulated_portfolios/ys      float64, shape (10000,)  annualized return (%) of those portfolios
@@ -193,7 +193,7 @@ In the tangency line formula, `risk_free_rate` and `sharpe_ratio` are the YAML f
 ### Notes
 
 - **Same units as the YAML file.** Since v4, this file and `optimization_metadata.yml` are both annualized (arithmetic) in percent, so YAML values can be plotted directly on the same axes.
-- **`NaN` values.** An `efficient_frontier/xs` entry is `NaN` when the optimizer found no feasible portfolio for that target return. Readers must drop or break the line at `NaN` and must not treat it as an error.
+- **`NaN` values.** An `efficient_frontier/xs` entry is `NaN` when the optimizer found no feasible portfolio for that target return. Readers must drop or break the line at `NaN` and must not treat it as an error. `tangency_line` never contains `NaN` (since v5).
 - **Array lengths** (100 and 10,000) are current settings. Read the shape from the file and do not hard-code them.
 - Suggested axis labels are "Annualized Risk (σ, %)" and "Annualized Return (%)".
 - The backend does no plotting. All visualization of this data is the frontend's responsibility.
@@ -265,6 +265,7 @@ Checked against real backend output from **v3** (2026-10-11). These items are un
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 5 | 2026-10-11 | Bug fix, non-breaking: the tangency line's risk range now ends at the largest **non-NaN** efficient-frontier risk. Before, a `NaN` frontier point could make the whole `tangency_line` `NaN`. Documented that `tangency_line` contains no `NaN`. No change to keys, shapes, or units. |
 | 4 | 2026-10-11 | **Breaking (units).** Every return and risk in the optimization files is now annualized arithmetically (return × 252, risk × √252). `.h5`: every dataset changes from daily % to annualized %, with the same keys and shapes, plus new root attributes describing units. YAML: `optimum_portfolio.annualized_return` changes from compounded to arithmetic (about 40.9 → 34.3 on the 2026-10-09 data). Additive: `optimum_portfolio.sharpe_ratio`, `min_var_portfolio`, `annualization`. `daily_risk_free_rate` kept unchanged. Frontend must: relabel axes as annualized, stop any daily→annual conversion it does, check the `.h5` `annualization` attribute (absent means a pre-v4 daily file), and update any display of `annualized_return`. |
 | 3 | 2026-10-11 | Backend no longer renders a local PNG plot (it was never uploaded). Removed the note about it. No change to uploaded keys, formats, shapes, or units. |
 | 2 | 2026-10-11 | Replaced the illustrative YAML example with a real file. Documented floating-point noise in weights (scientific notation, `~1e-14` for zero, `39.99999999999994` at the cap) and reader handling. Recorded verification status. No change to keys, columns, shapes, or units. |
