@@ -12,7 +12,6 @@ from fuzzy_system_research.optimization.portfolio import (
     calc_min_variance_portfolio,
     get_risk_free_rate,
     optimize_sharpe_ratio,
-    plot_optimization_results,
     simulate_portfolios,
 )
 from fuzzy_system_research.storage.s3_uploader import S3Uploader
@@ -77,21 +76,6 @@ def main():
     tangency_ys = (
         risk_free_rate_data["daily_risk_free_rate"] + best_sharpe_ratio * tangency_xs
     )
-    result_fig = plot_optimization_results(
-        optimized_risks,
-        target_returns,
-        tangency_xs,
-        tangency_ys,
-        simulated_risks,
-        simulated_returns,
-        min_var_risk,
-        min_var_return,
-        opt_risk,
-        opt_return,
-    )
-    result_fig_filename = os.path.join("output", "portfolio_optimization_plot.png")
-    result_fig.savefig(result_fig_filename, dpi=300, bbox_inches="tight")
-    print(f"{result_fig_filename} saved!")
     portfolio_optimization_plot_data_filename = os.path.join(
         "output", "portfolio_optimization_plot_data.h5"
     )

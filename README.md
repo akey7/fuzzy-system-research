@@ -73,7 +73,7 @@ fuzzy-system-research/
 │   └── ticker_download_to_csv.py
 ├── src/fuzzy_system_research/    # IMPORT these: reusable library code, no entry points
 │   ├── data/                     # Market data download, caching, and date logic
-│   ├── optimization/             # Portfolio optimization math and plotting
+│   ├── optimization/             # Portfolio optimization math
 │   ├── forecasting/              # ARIMA models and the walk-forward training workflow
 │   └── storage/                  # S3/Spaces uploads
 ├── tests/                        # Tests (use mocks and temporary directories only)
@@ -113,7 +113,7 @@ These modules are imported by the scripts and are not meant to be executed direc
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `data/ticker_download_manager.py`           | Downloads new data from Massive.com or retrieves old data from the cache.                                                                               | No                                   |
 | `data/date_manager.py`                      | Date and business day calculations.                                                                                                                     | No                                   |
-| `optimization/portfolio.py`                 | Monte Carlo portfolio simulation, minimum variance and max Sharpe ratio optimization, efficient frontier, risk-free rate retrieval, and plotting.       | No                                   |
+| `optimization/portfolio.py`                 | Monte Carlo portfolio simulation, minimum variance and max Sharpe ratio optimization, efficient frontier, and risk-free rate retrieval.                | No                                   |
 | `forecasting/arima_models.py`               | Trains ARIMA models on price data.                                                                                                                      | No                                   |
 | `forecasting/ticker_predict.py`             | `TickerPredictUpload`: walk-forward ARIMA training over rolling windows, plus the upload of the forecasts.                                              | Yes                                  |
 | `storage/s3_uploader.py`                    | Uploads files to S3/Spaces buckets on AWS/DigitalOcean.                                                                                                 | Yes (other modules use it to upload) |

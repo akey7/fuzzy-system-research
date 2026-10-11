@@ -2,7 +2,6 @@ import os
 import json
 import datetime
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 import pandas_datareader as web
 from dateutil.relativedelta import relativedelta
@@ -311,60 +310,3 @@ def optimize_sharpe_ratio(tdm, daily_risk_free_rate, mean_returns, cov_np):
     opt_risk = np.sqrt(best_weights.dot(cov_np).dot(best_weights))
     opt_return = best_weights.dot(mean_returns)
     return best_sharpe_ratio, best_weights, opt_risk, opt_return
-
-
-def plot_optimization_results(
-    optimized_risks,
-    target_returns,
-    tangency_xs,
-    tangency_ys,
-    simulated_risks,
-    simulated_returns,
-    min_var_risk,
-    min_var_return,
-    opt_risk,
-    opt_return,
-):
-    """
-    Takes output from all other functions in this module to create
-    an efficient frontier plot.
-    """
-    fig, ax = plt.subplots(nrows=1, ncols=1)
-    ax.plot(
-        optimized_risks,
-        target_returns,
-        c="#009E73",
-        zorder=1,
-        label="Efficient Frontier",
-    )
-    ax.plot(tangency_xs, tangency_ys, c="#F0E442", zorder=1, label="Tangency line")
-    ax.scatter(
-        simulated_risks,
-        simulated_returns,
-        alpha=0.1,
-        s=2,
-        c="#0072B2",
-        zorder=10,
-        label="Portfolios",
-    )
-    ax.scatter(
-        [opt_risk],
-        [opt_return],
-        c="#CC79A7",
-        marker="*",
-        s=200,
-        zorder=10,
-        label="Max Sharpe Ratio Portfolio",
-    )
-    ax.scatter(
-        [min_var_risk],
-        [min_var_return],
-        c="#E69F00",
-        zorder=10,
-        label="Min Var Portfolio",
-    )
-    ax.set_xlabel("Daily Risk (σ)")
-    ax.set_ylabel("Daily Returns (%)")
-    ax.set_title("Efficient Frontier")
-    ax.legend()
-    return fig

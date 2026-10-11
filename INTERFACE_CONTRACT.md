@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 2 |
+| **Contract version** | 3 |
 | **Last updated** | 2026-10-11 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -158,8 +158,8 @@ Things to notice in the example:
 - **Units differ from the YAML file.** This file is **daily**, while `optimization_metadata.yml` reports **annualized** risk and return for the optimum portfolio. Do not plot one against the other without converting.
 - **`NaN` values.** An `efficient_frontier/xs` entry is `NaN` when the optimizer found no feasible portfolio for that target return. Readers must drop or break the line at `NaN` and must not treat it as an error.
 - **Array lengths** (100 and 10,000) are current settings. Read the shape from the file and do not hard-code them.
-- Axis labels used by the backend's own plot are "Daily Risk (σ)" and "Daily Returns (%)".
-- The backend also writes `portfolio_optimization_plot.png` locally. It is **not uploaded** and is not part of this contract.
+- Suggested axis labels are "Daily Risk (σ)" and "Daily Returns (%)".
+- The backend does no plotting. All visualization of this data is the frontend's responsibility.
 
 ---
 
@@ -226,5 +226,6 @@ Still **not** verified against real data:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 3 | 2026-10-11 | Backend no longer renders a local PNG plot (it was never uploaded). Removed the note about it. No change to uploaded keys, formats, shapes, or units. |
 | 2 | 2026-10-11 | Replaced the illustrative YAML example with a real file. Documented floating-point noise in weights (scientific notation, `~1e-14` for zero, `39.99999999999994` at the cap) and reader handling. Recorded verification status. No change to keys, columns, shapes, or units. |
 | 1 | 2026-10-11 | Initial contract, derived from the backend code. |
