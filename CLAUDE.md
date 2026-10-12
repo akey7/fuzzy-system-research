@@ -70,7 +70,7 @@ Because the human can't have Claude run anything, **any future reorganization is
 
 ## Environment and configuration
 
-- Python 3.13, managed with `uv` (project-local `.venv`; version pinned in `.python-version`).
+- Python 3.13 (`requires-python = ">=3.13"`), pinned to 3.13.5 in `.python-version`, managed with `uv` (project-local `.venv`).
 - Dependencies: `pyproject.toml` (`dependencies` for production, `[dependency-groups] dev` for development), locked in `uv.lock`. Claude may edit `pyproject.toml`, but must not run `uv` or install anything, and must not hand-edit `uv.lock`. Tell the human which commands to run (`uv lock`, `uv sync`).
 - Never hard-code secrets, bucket names, or endpoints. Everything comes from `.env` via environment variables.
 
