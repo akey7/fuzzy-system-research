@@ -18,13 +18,28 @@ from fuzzy_system_research.optimization.portfolio import (
     optimize_sharpe_ratio,
     simulate_portfolios,
 )
+from fuzzy_system_research.storage.layout import (
+    OPTIMIZATION_METADATA_FILENAME,
+    OPTIMIZATION_PLOT_DATA_FILENAME,
+    PORTFOLIO_OPTIMIZATION,
+    as_of_date_str,
+    bucket_key,
+    ensure_parent_dir,
+    local_output_path,
+)
 from fuzzy_system_research.storage.s3_uploader import S3Uploader
 
 
 def main():
     """
-    Run the whole ARIMA modeling and portfolio optimization workflow, including
-    uploading results to S3 for the frontend.
+    Run the whole portfolio optimization workflow, including uploading
+    results to S3 for the frontend.
+
+    Results are written to output/portfolio_optimization/YYYY-MM-DD/ and
+    uploaded under the key prefix YYYY-MM-DD/, where YYYY-MM-DD is the data
+    as-of date (the last trading day in the price data). The .h5 file is
+    uploaded before optimization_metadata.yml, so the metadata file marks a
+    complete upload.
     """
     tdm = TickerDownloadManager(os.path.join("input", "annual"))
     dm = DateManager()
@@ -38,6 +53,8 @@ def main():
     wide_df = tpu.pivot_ticker_close_wide(long_df)
     date_from = wide_df.index[0]
     date_to = wide_df.index[-1]
+    as_of = as_of_date_str(wide_df.index)
+    print(f"Results will be stored under {as_of}/")
     print(
         f"Sanity check: Wide dataframe should have 0 missing values: {wide_df.isna().sum().sum()}"
     )
@@ -91,8 +108,10 @@ def main():
     annualized_sharpe_ratio = annualize_sharpe_ratio(best_sharpe_ratio)
     print("annualized_optimum_return, annualized_optimum_risk, annualized_sharpe_ratio")
     print(annualized_optimum_return, annualized_optimum_risk, annualized_sharpe_ratio)
-    portfolio_optimization_plot_data_filename = os.path.join(
-        "output", "portfolio_optimization_plot_data.h5"
+    portfolio_optimization_plot_data_filename = ensure_parent_dir(
+        local_output_path(
+            PORTFOLIO_OPTIMIZATION, as_of, OPTIMIZATION_PLOT_DATA_FILENAME
+        )
     )
     with h5py.File(portfolio_optimization_plot_data_filename, "w") as hf:
         hf.attrs["return_units"] = "percent_per_year"
@@ -128,7 +147,7 @@ def main():
     s3u.upload_file(
         portfolio_optimization_plot_data_filename,
         space_name,
-        "portfolio_optimization_plot_data.h5",
+        bucket_key(as_of, OPTIMIZATION_PLOT_DATA_FILENAME),
     )
     metadata = {
         "date_updated": {
@@ -152,13 +171,16 @@ def main():
             "risk": annualized_min_var_risk,
         },
     }
-    metadata_filename = os.path.join("output", "optimization_metadata.yml")
+    metadata_filename = ensure_parent_dir(
+        local_output_path(PORTFOLIO_OPTIMIZATION, as_of, OPTIMIZATION_METADATA_FILENAME)
+    )
     with open(metadata_filename, "w") as f:
         yaml.dump(metadata, f, default_flow_style=False)
+    # Uploaded last: its presence marks this date's upload as complete.
     s3u.upload_file(
         metadata_filename,
         space_name,
-        "optimization_metadata.yml",
+        bucket_key(as_of, OPTIMIZATION_METADATA_FILENAME),
     )
 
 

@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 7 |
-| **Last updated** | 2026-10-11 |
+| **Contract version** | 9 |
+| **Last updated** | 2026-10-12 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
 This file is stored **byte-for-byte identically** in both repos. It describes the files the backend uploads to S3-compatible buckets (DigitalOcean Spaces, accessed with `boto3`) and the frontend reads. Treat it as a public API.
@@ -26,17 +26,37 @@ Version 1 was written from the backend code. Version 2 was checked against real 
 
 ## Where the data lives
 
-| Environment variable (backend `.env`) | Bucket (Space) contents |
-| --- | --- |
-| `PORTFOLIO_OPTIMIZATION_SPACE_NAME` | `optimization_metadata.yml`, `portfolio_optimization_plot_data.h5` |
-| `TIME_SERIES_SPACE_NAME` | `all_forecasts.csv` |
+Every file is stored under a **date prefix** `YYYY-MM-DD/`, one folder per run date, so past runs are kept:
 
-Both buckets are on the same DigitalOcean endpoint. Dev and production are selected by the `.env` values the backend and the frontend are each configured with; the key names below are identical in both.
+| Environment variable (backend `.env`) | Object keys |
+| --- | --- |
+| `PORTFOLIO_OPTIMIZATION_SPACE_NAME` | `YYYY-MM-DD/optimization_metadata.yml`, `YYYY-MM-DD/portfolio_optimization_plot_data.h5` |
+| `TIME_SERIES_SPACE_NAME` | `YYYY-MM-DD/all_forecasts.csv` |
+
+Both buckets are on the same DigitalOcean endpoint. Dev and production are selected by the `.env` values the backend and the frontend are each configured with; the key names are identical in both.
+
+### The date prefix
+
+- **Meaning:** `YYYY-MM-DD` is the **data as-of date**: the last NYSE trading day in the price data used by that run, not the day the backend ran. A run on a Sunday stores Friday's results under Friday's date.
+  - For the optimization files it equals `date_updated.date_to` in that folder's `optimization_metadata.yml`.
+  - For `all_forecasts.csv` it is the last `pred_date` with a non-empty actual price. The final row (the live forecast) is the next trading day after the folder date.
+- **Same-day re-runs** overwrite the files in that date's folder. Older dates are never modified or deleted by the backend.
+- **Format:** exactly `^\d{4}-\d{2}-\d{2}/` at the start of the key, zero-padded. Lexicographic order equals chronological order. Readers must **ignore every key that does not start with a valid date prefix**. In particular, root-level objects left over from contract v8 and earlier (`optimization_metadata.yml`, `portfolio_optimization_plot_data.h5`, `all_forecasts.csv` with no prefix) are stale and are no longer written; the human removes them by hand.
+- **Retention:** all dates are kept indefinitely. There is no pruning.
+
+### Which dates are available
+
+A date is **available** only when its data is complete in **both** buckets:
+
+1. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` contains `YYYY-MM-DD/optimization_metadata.yml`. The backend uploads the `.h5` file first and this file last, so its presence means both optimization files for that date are complete.
+2. `TIME_SERIES_SPACE_NAME` contains `YYYY-MM-DD/all_forecasts.csv`.
+
+Dates present in only one bucket (for example, only one of the two backend scripts was run) are **not** available and must not be offered to users. To find the dates, list each bucket with S3 `ListObjectsV2` using `Delimiter="/"`: the date folders come back as `CommonPrefixes` (for example `2026-10-09/`). Follow `ContinuationToken` pagination, since a listing returns at most 1,000 entries. Then confirm the marker object for each date (a `HeadObject`, or a listing with `Prefix="YYYY-MM-DD/"`).
 
 General behavior of every file:
 
-- **Latest only.** Each backend run overwrites the same key. There are no dated keys and no history in the bucket.
-- **Non-atomic.** The two optimization files are uploaded one after the other (`.h5` first, then `.yml`), so for a few seconds the files can come from different runs. The metadata `date_updated` and the `.h5` data are from the same run once both uploads finish.
+- **History.** Each date folder is a snapshot of one run. Comparing dates is valid (same keys, formats, and units within a contract version), but a date folder written under an older contract version keeps the format of that version.
+- **Non-atomic.** The two optimization files are uploaded one after the other (`.h5` first, then `.yml`). The completion marker rule above prevents reading a half-uploaded date. During a same-day re-run, a date's two optimization files can briefly come from different runs.
 - **Manual cadence.** The backend is run by hand, so there is no guaranteed update schedule. The frontend should display the data dates (see below) so a stale dataset is visible, rather than assuming data is current.
 - **Content type and ACLs.** The backend sets none. Do not rely on the `Content-Type` of an object; decide how to parse from the key name.
 - **Not investment advice.** All values are backtested or modeled outputs of a hobby project. Any user-facing text must say so.
@@ -54,13 +74,13 @@ General behavior of every file:
 
   Arithmetic annualization keeps risk/return relationships linear, so the tangency line is straight, its intercept is the quoted annual risk-free rate, and its slope is the annualized Sharpe ratio. It is not the compounded growth an investor would realize. If user-facing text needs that distinction, say "annualized (arithmetic)" rather than "annual growth".
 - The **only** daily quantity uploaded is `risk_free_rate.daily_risk_free_rate`, kept for backward compatibility and named accordingly.
-- **Dates** are US trading days. Date-only fields are strings in `YYYY-MM-DD` format.
+- **Dates** are NYSE trading days (sessions of the New York Stock Exchange calendar, so weekends and NYSE holidays such as Good Friday are excluded, while federal-only holidays such as Columbus Day are included). "Business day" in this document means NYSE trading day. Date-only fields are strings in `YYYY-MM-DD` format.
 
 ---
 
 ## `optimization_metadata.yml`
 
-**Bucket:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Format:** YAML (block style, keys sorted alphabetically), UTF-8. Parse it with a safe YAML loader. Date-like values are written as **quoted strings**, so loaders return strings, not date objects.
+**Bucket:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Key:** `YYYY-MM-DD/optimization_metadata.yml`. **Format:** YAML (block style, keys sorted alphabetically), UTF-8. Parse it with a safe YAML loader. Date-like values are written as **quoted strings**, so loaders return strings, not date objects.
 
 ### Example
 
@@ -146,7 +166,7 @@ Things to notice in the example:
 
 ## `portfolio_optimization_plot_data.h5`
 
-**Bucket:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Format:** HDF5 (written with `h5py`). The file has five top-level groups. Each group has exactly two datasets named `xs` and `ys`: one-dimensional float64 arrays of equal length within the group. `xs` is the horizontal axis (risk), and `ys` is the vertical axis (return). All values are **annualized (arithmetic), in percent** (see "Shared conventions"), and the file contains no dates and no ticker names (use `optimization_metadata.yml` for those).
+**Bucket:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Key:** `YYYY-MM-DD/portfolio_optimization_plot_data.h5`. **Format:** HDF5 (written with `h5py`). The file has five top-level groups. Each group has exactly two datasets named `xs` and `ys`: one-dimensional float64 arrays of equal length within the group. `xs` is the horizontal axis (risk), and `ys` is the vertical axis (return). All values are **annualized (arithmetic), in percent** (see "Shared conventions"), and the file contains no dates and no ticker names (use `optimization_metadata.yml` for those).
 
 ### Root attributes (added in v4)
 
@@ -202,7 +222,7 @@ In the tangency line formula, `risk_free_rate` and `sharpe_ratio` are the YAML f
 
 ## `all_forecasts.csv`
 
-**Bucket:** `TIME_SERIES_SPACE_NAME`. **Format:** CSV with a header row, UTF-8, comma-separated, written by `pandas.DataFrame.to_csv(index=True)` (the index is the first column). Read it with the first column parsed as dates, e.g. `pandas.read_csv(..., index_col="pred_date", parse_dates=True)`.
+**Bucket:** `TIME_SERIES_SPACE_NAME`. **Key:** `YYYY-MM-DD/all_forecasts.csv`. **Format:** CSV with a header row, UTF-8, comma-separated, written by `pandas.DataFrame.to_csv(index=True)` (the index is the first column). Read it with the first column parsed as dates, e.g. `pandas.read_csv(..., index_col="pred_date", parse_dates=True)`.
 
 ### Shape
 
@@ -210,7 +230,7 @@ A wide table with one row per forecast date and, for every ticker `T`, two colum
 
 | Column | Type | Meaning |
 | --- | --- | --- |
-| `pred_date` (first column, the index) | timestamp string, e.g. `2026-10-09 17:00:00` | The business day being forecast. The time of day (`17:00:00`) is a fixed label with no meaning; use only the date. |
+| `pred_date` (first column, the index) | timestamp string, e.g. `2026-10-09 17:00:00` | The NYSE trading day being forecast. The time of day (`17:00:00`) is a fixed label with no meaning; use only the date. |
 | `T_arima` | float | The ARIMA model's one-step-ahead forecast of `T`'s adjusted close (US dollars) for `pred_date`. |
 | `T` | float, may be empty | The actual adjusted close (US dollars) of `T` on `pred_date`. **Empty on rows that have no actual value yet** (see below). |
 
@@ -227,7 +247,7 @@ Do not rely on column order. Identify forecast columns by the `_arima` suffix, a
 - **Horizon:** one business day ahead. Each row's forecast was made using only data **before** `pred_date`.
 - **Walk-forward:** for each forecast date, an ARIMA model is refit on a sliding window of the preceding 20 business days of prices (log-transformed and differenced once), with orders `p` and `q` chosen from 0 to 1 and 0 to 1 (excluding 0,0) by RMSE and BIC rank on the window. The window slides one business day per row.
 - **Back to dollars:** the model forecasts a log return. The backend converts it to a price with `last_price × exp(forecasted log return)`, so `T_arima` is in the same units as `T`.
-- **Last row:** the final row is the first business day after the latest available data. Its `T` values are **empty** because that day has not happened yet. Treat that row as the live forecast and the rows above it as the backtest.
+- **Last row:** the final row is the first NYSE trading day after the latest available data. Its `T` values are **empty** because that day has not happened yet. Treat that row as the live forecast and the rows above it as the backtest.
 - **Rows** are unique by `pred_date` and sorted ascending. The number of rows is about one month of business days and is not fixed.
 
 ### Not included
@@ -241,9 +261,11 @@ The file does **not** contain RMSE, the selected `(p, q)` orders, confidence int
 1. **Ignore unknown things.** Unknown YAML keys, HDF5 groups or datasets, and CSV columns must be ignored without error. This is what makes additive changes safe.
 2. **Do not hardcode** the ticker list, array lengths, or row counts.
 3. **Handle `NaN` and empty cells** as described above.
-4. **Show data dates.** Display `date_updated.date_to` (and the last non-empty actual date in `all_forecasts.csv`) so staleness is visible.
+4. **Show data dates.** Display the selected date (equal to `date_updated.date_to`) so users can tell how current the data is.
 5. **Fail soft.** If a file is missing or does not parse, show an explanatory message instead of crashing. Missing or partial data is expected while a run is mid-upload.
 6. **Label units.** Daily versus annualized, and percent versus dollars, must be stated wherever a value is shown.
+7. **Date selection.** Offer only *available* dates (see "Which dates are available"), newest first, with the newest selected by default. Load all three files from the **same** date folder; never mix dates across files. Ignore keys without a valid date prefix, including stale root-level objects from contract v8 and earlier.
+8. **Do not assume consecutive dates.** Runs are manual, so dates have gaps (weekends, holidays, days not run).
 
 ## Verification status
 
@@ -258,12 +280,16 @@ Checked against real backend output (2026-10-11):
 
 **Not yet** verified against real data (derived from the code):
 
+- The v9 date-prefixed keys (`YYYY-MM-DD/...`) in both buckets, that the folder date equals `date_updated.date_to`, and the upload order (`.h5` before `optimization_metadata.yml`). The key and path construction is covered by unit tests (`tests/test_layout.py`).
+- The v8 NYSE calendar behavior on real data (covered by unit tests in `tests/test_date_manager.py`).
 - `NaN` entries in `efficient_frontier/xs` (inferred from the code for infeasible target returns). Readers must handle `NaN` regardless.
 
 ## Changelog
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 9 | 2026-10-12 | **Breaking (keys).** Every file moves under a date prefix `YYYY-MM-DD/` (the data as-of date = last NYSE trading day in the run's data), keeping one folder per run instead of overwriting. File names, formats, columns, shapes, and units are unchanged. Root-level keys are **no longer written** (clean break, no dual-write); stale root objects remain until removed by hand. Defined date availability as the intersection of both buckets, with `optimization_metadata.yml` as the optimization completion marker. Frontend must: list date prefixes in both buckets (`ListObjectsV2`, `Delimiter="/"`, paginated), keep only dates complete in both, show them in a dropdown newest-first with the newest selected by default, load all files from the selected date's folder, and ignore root-level objects. Ship the frontend change with the first prefixed upload to production. |
+| 8 | 2026-10-12 | Calendar fix, non-breaking (no change to keys, columns, shapes, or units): business days now follow the NYSE trading calendar instead of the US federal holiday calendar. Effects: `pred_date` and the ARIMA training windows skip NYSE closures (e.g. Good Friday) and include federal-only holidays (e.g. Columbus Day, Veterans Day), and downloaded data now ends on the last NYSE session instead of possibly omitting one. |
 | 7 | 2026-10-11 | Documentation only: recorded verification of the `.h5` point values and tangency line against real output. No change to keys, shapes, units, or meaning. |
 | 6 | 2026-10-11 | Documentation only: replaced the illustrative v4 YAML example with real output and recorded the verification of the v4 YAML keys and `.h5` root attributes. No change to keys, shapes, units, or meaning. |
 | 5 | 2026-10-11 | Bug fix, non-breaking: the tangency line's risk range now ends at the largest **non-NaN** efficient-frontier risk. Before, a `NaN` frontier point could make the whole `tangency_line` `NaN`. Documented that `tangency_line` contains no `NaN`. No change to keys, shapes, or units. |

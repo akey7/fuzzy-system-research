@@ -47,10 +47,11 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 | `scripts/ticker_predict_upload.py` | Run `TickerPredictUpload` (fit a month's worth of ARIMA models) | Yes | Yes |
 | `scripts/ticker_download_to_csv.py` | Download one symbol from Massive.com to CSV | Yes | No |
 | `src/fuzzy_system_research/data/ticker_download_manager.py` | Download new data or retrieve cached data | No | No |
-| `src/fuzzy_system_research/data/date_manager.py` | Date and business-day calculations | No | No |
+| `src/fuzzy_system_research/data/date_manager.py` | Date and business-day calculations (NYSE calendar via `exchange_calendars`) | No | No |
 | `src/fuzzy_system_research/optimization/portfolio.py` | Simulation, min-variance, efficient frontier, risk-free rate, max-Sharpe | No | No |
 | `src/fuzzy_system_research/forecasting/arima_models.py` | ARIMA training on price data | No | No |
 | `src/fuzzy_system_research/forecasting/ticker_predict.py` | `TickerPredictUpload`: walk-forward ARIMA workflow and upload | No | Yes |
+| `src/fuzzy_system_research/storage/layout.py` | Pure helpers for dated `output/` paths and bucket keys; the single source of truth for both layouts | No | No |
 | `src/fuzzy_system_research/storage/s3_uploader.py` | S3/Spaces upload helper | No | Used by others |
 
 `tests/` holds pytest tests (in-memory only; no network, S3, `input/`, or `output/`). The human runs them with `uv run pytest` from the repo root.
@@ -58,7 +59,7 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 Data directories (contents are **not** committed to git; the human creates them and populates them by running the scripts):
 
 - `input/` — risk-free rate data; `input/annual/` — annual ticker data; `input/monthly/` — monthly ticker data
-- `output/` — results of runs
+- `output/` — results of runs, mirroring the buckets: `output/portfolio_optimization/YYYY-MM-DD/` and `output/time_series/YYYY-MM-DD/` (data as-of date). Build these paths and bucket keys only through `storage/layout.py`.
 
 Because the human can't have Claude run anything, **any future reorganization is a pure code/path refactor.** When doing it:
 

@@ -3,6 +3,14 @@ import pandas as pd
 from fuzzy_system_research.data.date_manager import DateManager
 from fuzzy_system_research.data.ticker_download_manager import TickerDownloadManager
 from fuzzy_system_research.forecasting.arima_models import ArimaModels
+from fuzzy_system_research.storage.layout import (
+    ALL_FORECASTS_FILENAME,
+    TIME_SERIES,
+    as_of_date_str,
+    bucket_key,
+    ensure_parent_dir,
+    local_output_path,
+)
 from fuzzy_system_research.storage.s3_uploader import S3Uploader
 
 
@@ -149,19 +157,27 @@ class TickerPredictUpload:
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
 
-    def run(self):
+    def run(self) -> None:
         """
         Download or read cached ticker data from Massive, process it, and
         upload it to DigitalOcean for transfer to the front end. Manage caches of
         stock tickers (so that the Massive API is not accessed unnecessarily)
         and predictions (so that a long running process is not run
-        unecessarily).
+        unnecessarily).
+
+        Forecasts are written to output/time_series/YYYY-MM-DD/all_forecasts.csv
+        and uploaded under the key YYYY-MM-DD/all_forecasts.csv, where
+        YYYY-MM-DD is the data as-of date (the last trading day in the price
+        data). If that local file already exists, training is skipped and the
+        existing file is uploaded again.
         """
         long_df, start_date, end_date = self.tdm.get_latest_tickers(use_cache=True)
         print(f"{start_date} to {end_date}")
         wide_df = self.pivot_ticker_close_wide(long_df)
-        all_forecasts_df_local_filename = os.path.join(
-            "output", f"All Forecasts {self.dm.get_today_date()}.csv"
+        as_of = as_of_date_str(wide_df.index)
+        print(f"Results will be stored under {as_of}/")
+        all_forecasts_df_local_filename = ensure_parent_dir(
+            local_output_path(TIME_SERIES, as_of, ALL_FORECASTS_FILENAME)
         )
         if not os.path.exists(all_forecasts_df_local_filename):
             arima_forecasts_df = self.train_arima_models(wide_df)
@@ -169,5 +185,7 @@ class TickerPredictUpload:
         s3u = S3Uploader()
         time_series_space_name = os.getenv("TIME_SERIES_SPACE_NAME")
         s3u.upload_file(
-            all_forecasts_df_local_filename, time_series_space_name, "all_forecasts.csv"
+            all_forecasts_df_local_filename,
+            time_series_space_name,
+            bucket_key(as_of, ALL_FORECASTS_FILENAME),
         )

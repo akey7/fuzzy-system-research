@@ -75,7 +75,7 @@ fuzzy-system-research/
 │   ├── data/                     # Market data download, caching, and date logic
 │   ├── optimization/             # Portfolio optimization math
 │   ├── forecasting/              # ARIMA models and the walk-forward training workflow
-│   └── storage/                  # S3/Spaces uploads
+│   └── storage/                  # Output/bucket key layout and S3/Spaces uploads
 ├── tests/                        # Tests (use mocks and temporary directories only)
 ├── input/                        # Cached market data (not committed)
 └── output/                       # Results of runs (not committed)
@@ -93,7 +93,15 @@ The following folders should be created before running the scripts in the sectio
 
 3. `input/monthly/`: Holds monthly ticker data.
 
-4. `output/`: Holds output data.
+4. `output/`: Holds the results of runs, in one folder per data as-of date (the last NYSE trading day in the run's data). Subfolders are created automatically. The layout mirrors the frontend buckets, where each file's key is its path below `output/<kind>/`:
+
+   ```
+   output/portfolio_optimization/YYYY-MM-DD/optimization_metadata.yml
+   output/portfolio_optimization/YYYY-MM-DD/portfolio_optimization_plot_data.h5
+   output/time_series/YYYY-MM-DD/all_forecasts.csv
+   ```
+
+   Re-running a script for the same date overwrites that date's files. `ticker_predict_upload.py` skips ARIMA training when that date's `all_forecasts.csv` already exists. See `INTERFACE_CONTRACT.md` for the bucket layout the frontend reads.
 
 ### Scripts
 
@@ -112,8 +120,9 @@ These modules are imported by the scripts and are not meant to be executed direc
 | Module (under `src/fuzzy_system_research/`) | Purpose                                                                                                                                                 | Uploads to front end?                |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `data/ticker_download_manager.py`           | Downloads new data from Massive.com or retrieves old data from the cache.                                                                               | No                                   |
-| `data/date_manager.py`                      | Date and business day calculations.                                                                                                                     | No                                   |
+| `data/date_manager.py`                      | Date and business day calculations on the NYSE trading calendar (via `exchange_calendars`).                                                             | No                                   |
 | `optimization/portfolio.py`                 | Monte Carlo portfolio simulation, minimum variance and max Sharpe ratio optimization, efficient frontier, and risk-free rate retrieval.                | No                                   |
 | `forecasting/arima_models.py`               | Trains ARIMA models on price data.                                                                                                                      | No                                   |
 | `forecasting/ticker_predict.py`             | `TickerPredictUpload`: walk-forward ARIMA training over rolling windows, plus the upload of the forecasts.                                              | Yes                                  |
+| `storage/layout.py`                         | Builds the dated `output/` paths and matching bucket keys (`YYYY-MM-DD/<file>`).                                                                        | No                                   |
 | `storage/s3_uploader.py`                    | Uploads files to S3/Spaces buckets on AWS/DigitalOcean.                                                                                                 | Yes (other modules use it to upload) |
