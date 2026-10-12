@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 11 |
+| **Contract version** | 12 |
 | **Last updated** | 2026-10-12 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -298,7 +298,9 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
     - `time-series/2026-10-09/all_forecasts.csv`
     - `portfolio-optimization/2026-10-09/optimization_metadata.yml`
     - `portfolio-optimization/2026-10-09/portfolio_optimization_plot_data.h5`
-    - `portfolio-optimization/optimization_metadata.yml`, a stale pre-v9 object directly under the folder, which readers ignore.
+    - `portfolio-optimization/optimization_metadata.yml`, a stale pre-v9 object directly under the folder, which readers ignore. The human has since deleted it.
+
+    A later listing after the backend switched to `Bucket=<space>` with the folder in the key showed the same three dated keys and no stale objects.
 
     So the folder values were `time-series` and `portfolio-optimization` at the time.
   - **Folder names as buckets fail:** `ListObjectsV2` with a folder name as `Bucket` fails, with `NoSuchBucket` from the backend's configuration and `NoSuchKey` from the frontend's.
@@ -320,6 +322,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 12 | 2026-10-12 | Documentation only; no change to keys, formats, or reader behavior. The v11 text was amended in place after it was first written, so a copy taken earlier may differ. This version is the reconciled text for both repos. Amendments since the first v11 text: the "Connecting" section states that the backend also reads `FSF_FRONT_END_BUCKET_NAME` and uploads with `Bucket=<space>`, `Key="<folder>/YYYY-MM-DD/<file>"`; "Verification status" records the programmatic listing of the real keys, the deleted stale object, and a second listing after the backend change; the v11 changelog entry notes the backend change. Frontend: replace its copy with this file. |
 | 11 | 2026-10-12 | **Documentation correction; no objects move and key strings are unchanged.** Earlier versions described `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME` as bucket names. They are top-level folder names inside **one** Space (bucket), so the full keys are `<folder>/YYYY-MM-DD/<file>`. Uploads landed correctly only because boto3, given an endpoint containing the Space name, sends path-style requests. Rewrote "Where the data lives", "The date prefix", "Which dates are available", the per-file Folder/Key lines, and reader requirement 7; added "Connecting". Frontend must: add `FSF_FRONT_END_BUCKET_NAME` (the Space name), use the region-only endpoint `https://<region>.digitaloceanspaces.com`, list each folder with `ListObjectsV2(Bucket=<space>, Prefix="<folder>/")` with pagination, strip the folder prefix before matching dates, and read objects with `Bucket=<space>`, `Key="<folder>/YYYY-MM-DD/<file>"`. The backend was changed the same way (it reads `FSF_FRONT_END_BUCKET_NAME` and passes the folder in the key), which produces byte-identical object keys. |
 | 10 | 2026-10-12 | Non-breaking; no change to keys, file names, formats, columns, shapes, or units. The backend now has a single entry point that produces all three files in one run: one price download, ARIMA trained on the last 40 trading sessions of that data (the same window as before), then the optimization. Uploads happen only after every computation succeeds, in the order `all_forecasts.csv`, `.h5`, `optimization_metadata.yml`, so the metadata file now marks a complete date across both buckets. The availability rule (both buckets) is unchanged because earlier dates came from two separate scripts. |
 | 9 | 2026-10-12 | **Breaking (keys).** Every file moves under a date prefix `YYYY-MM-DD/` (the data as-of date = last NYSE trading day in the run's data), keeping one folder per run instead of overwriting. File names, formats, columns, shapes, and units are unchanged. Root-level keys are **no longer written** (clean break, no dual-write); stale root objects remain until removed by hand. Defined date availability as the intersection of both buckets, with `optimization_metadata.yml` as the optimization completion marker. Frontend must: list date prefixes in both buckets (`ListObjectsV2`, `Delimiter="/"`, paginated), keep only dates complete in both, show them in a dropdown newest-first with the newest selected by default, load all files from the selected date's folder, and ignore root-level objects. Ship the frontend change with the first prefixed upload to production. |
