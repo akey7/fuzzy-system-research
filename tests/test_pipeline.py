@@ -210,6 +210,26 @@ def test_arima_failure_uploads_nothing(bucket_env, deps):
     assert uploader.calls == []
 
 
+def test_upload_failure_stops_before_completion_marker(bucket_env, deps):
+    # If an upload fails part way, the error propagates and
+    # optimization_metadata.yml (the completion marker) is never uploaded,
+    # so the frontend does not list the incomplete date.
+    _, _, _, kwargs = deps
+
+    class FailOnH5Uploader(FakeUploader):
+        def upload_file(self, local_filename, bucket_name, remote_filename):
+            if remote_filename.endswith(".h5"):
+                raise ConnectionError("upload failed")
+            super().upload_file(local_filename, bucket_name, remote_filename)
+
+    uploader = FailOnH5Uploader()
+    kwargs["uploader"] = uploader
+    with pytest.raises(ConnectionError):
+        run_pipeline(**kwargs)
+    keys = [key for _, _, key in uploader.calls]
+    assert len(keys) == 1 and keys[0].endswith("all_forecasts.csv")
+
+
 def test_optimization_failure_uploads_nothing_but_keeps_forecast_cache(
     bucket_env, deps
 ):

@@ -115,7 +115,10 @@ def run_pipeline(
 ) -> PipelineResult:
     """
     Run the whole backend: prices, ARIMA forecasts, portfolio optimization,
-    and uploads. Nothing is uploaded unless every computation succeeded.
+    and uploads. Nothing is uploaded unless every computation succeeded. If
+    an upload fails, the error propagates immediately; because
+    optimization_metadata.yml is uploaded last, a partially uploaded date is
+    never marked complete, and re-running uploads it again.
 
     Bucket names are read from the environment (load .env before calling).
     When upload is True they are checked before any work starts, so a
