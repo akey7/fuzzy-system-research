@@ -17,13 +17,15 @@ from conftest import SYNTHETIC_TICKERS, make_long_prices
 from fuzzy_system_research.data.prices import pivot_close_wide
 from fuzzy_system_research.pipeline import (
     OPTIMIZATION_LOOKBACK_SESSIONS,
-    PORTFOLIO_SPACE_ENV,
-    TIME_SERIES_SPACE_ENV,
+    PORTFOLIO_FOLDER_ENV,
+    TIME_SERIES_FOLDER_ENV,
     run_pipeline,
 )
+from fuzzy_system_research.storage.s3_uploader import BUCKET_NAME_ENV
 
-TS_BUCKET = "test-time-series"
-PO_BUCKET = "test-portfolio"
+SPACE = "test-space"
+TS_FOLDER = "test-time-series"
+PO_FOLDER = "test-portfolio"
 RF_DATA = {
     "risk_free_rate": 4.05,
     "daily_risk_free_rate": 4.05 / 252,
@@ -61,18 +63,19 @@ class FakeTrainer:
 
 class FakeUploader:
     def __init__(self):
-        self.calls: list[tuple[str, str, str]] = []
+        self.calls: list[tuple[str, str]] = []
 
-    def upload_file(self, local_filename, bucket_name, remote_filename):
+    def upload_file(self, local_filename, object_key):
         # Every file must already be written when it is uploaded.
         assert os.path.isfile(local_filename), local_filename
-        self.calls.append((local_filename, bucket_name, remote_filename))
+        self.calls.append((local_filename, object_key))
 
 
 @pytest.fixture
-def bucket_env(monkeypatch):
-    monkeypatch.setenv(TIME_SERIES_SPACE_ENV, TS_BUCKET)
-    monkeypatch.setenv(PORTFOLIO_SPACE_ENV, PO_BUCKET)
+def upload_env(monkeypatch):
+    monkeypatch.setenv(BUCKET_NAME_ENV, SPACE)
+    monkeypatch.setenv(TIME_SERIES_FOLDER_ENV, TS_FOLDER)
+    monkeypatch.setenv(PORTFOLIO_FOLDER_ENV, PO_FOLDER)
 
 
 @pytest.fixture
@@ -97,33 +100,45 @@ def expected_as_of() -> str:
     return pivot_close_wide(make_long_prices()).index[-1].strftime("%Y-%m-%d")
 
 
-def test_full_run_writes_three_files_and_uploads_in_order(bucket_env, deps):
-    tdm, trainer, uploader, kwargs = deps
+def test_full_run_writes_three_files_and_uploads_in_order(upload_env, deps):
+    _, _, uploader, kwargs = deps
     result = run_pipeline(**kwargs)
     as_of = expected_as_of()
     assert result.as_of == as_of
     for path in (result.forecasts_path, result.plot_data_path, result.metadata_path):
         assert os.path.isfile(path)
         assert f"{os.sep}{as_of}{os.sep}" in path
-    assert [(bucket, key) for _, bucket, key in uploader.calls] == [
-        (TS_BUCKET, f"{as_of}/all_forecasts.csv"),
-        (PO_BUCKET, f"{as_of}/portfolio_optimization_plot_data.h5"),
-        (PO_BUCKET, f"{as_of}/optimization_metadata.yml"),
+    assert [key for _, key in uploader.calls] == [
+        f"{TS_FOLDER}/{as_of}/all_forecasts.csv",
+        f"{PO_FOLDER}/{as_of}/portfolio_optimization_plot_data.h5",
+        f"{PO_FOLDER}/{as_of}/optimization_metadata.yml",
     ]
-    assert result.uploaded == tuple((b, k) for _, b, k in uploader.calls)
+    assert result.uploaded == tuple(key for _, key in uploader.calls)
     assert result.trained_arima is True
 
 
-def test_local_layout_mirrors_bucket_keys(bucket_env, deps, tmp_path):
+def test_keys_never_contain_the_space_name(upload_env, deps):
+    # The Space is the S3 bucket; it must not also appear inside a key.
     _, _, uploader, kwargs = deps
     run_pipeline(**kwargs)
-    kinds = ["time_series", "portfolio_optimization", "portfolio_optimization"]
-    for (local, _, key), kind in zip(uploader.calls, kinds):
+    assert all(SPACE not in key for _, key in uploader.calls)
+
+
+def test_local_layout_mirrors_object_keys(upload_env, deps, tmp_path):
+    # output/<kind>/<date>/<file> and <folder>/<date>/<file> share <date>/<file>.
+    _, _, uploader, kwargs = deps
+    run_pipeline(**kwargs)
+    kinds_and_folders = [
+        ("time_series", TS_FOLDER),
+        ("portfolio_optimization", PO_FOLDER),
+        ("portfolio_optimization", PO_FOLDER),
+    ]
+    for (local, key), (kind, folder) in zip(uploader.calls, kinds_and_folders):
         relative = os.path.relpath(local, tmp_path / "output" / kind)
-        assert relative.replace(os.sep, "/") == key
+        assert f"{folder}/" + relative.replace(os.sep, "/") == key
 
 
-def test_metadata_date_to_equals_folder_date(bucket_env, deps):
+def test_metadata_date_to_equals_folder_date(upload_env, deps):
     _, _, _, kwargs = deps
     result = run_pipeline(**kwargs)
     with open(result.metadata_path) as f:
@@ -132,7 +147,7 @@ def test_metadata_date_to_equals_folder_date(bucket_env, deps):
     assert metadata["tickers"] == SYNTHETIC_TICKERS
 
 
-def test_single_download_of_lookback_sessions_with_cache(bucket_env, deps):
+def test_single_download_of_lookback_sessions_with_cache(upload_env, deps):
     tdm, _, _, kwargs = deps
     run_pipeline(**kwargs)
     assert tdm.calls == [
@@ -140,13 +155,13 @@ def test_single_download_of_lookback_sessions_with_cache(bucket_env, deps):
     ]
 
 
-def test_refresh_data_bypasses_download_cache(bucket_env, deps):
+def test_refresh_data_bypasses_download_cache(upload_env, deps):
     tdm, _, _, kwargs = deps
     run_pipeline(refresh_data=True, **kwargs)
     assert tdm.calls[-1]["use_cache"] is False
 
 
-def test_arima_trains_on_last_40_sessions(bucket_env, deps):
+def test_arima_trains_on_last_40_sessions(upload_env, deps):
     _, trainer, _, kwargs = deps
     run_pipeline(**kwargs)
     wide = pivot_close_wide(make_long_prices())
@@ -154,7 +169,7 @@ def test_arima_trains_on_last_40_sessions(bucket_env, deps):
     pd.testing.assert_frame_equal(window, wide.iloc[-40:])
 
 
-def test_cached_forecasts_skip_training(bucket_env, deps):
+def test_cached_forecasts_skip_training(upload_env, deps):
     _, trainer, uploader, kwargs = deps
     first = run_pipeline(**kwargs)
     with open(first.forecasts_path) as f:
@@ -168,7 +183,7 @@ def test_cached_forecasts_skip_training(bucket_env, deps):
     assert len(uploader.calls) == 6  # The cached file is still uploaded.
 
 
-def test_retrain_arima_ignores_cache(bucket_env, deps):
+def test_retrain_arima_ignores_cache(upload_env, deps):
     _, trainer, _, kwargs = deps
     first = run_pipeline(**kwargs)
     with open(first.forecasts_path, "w") as f:
@@ -182,8 +197,8 @@ def test_retrain_arima_ignores_cache(bucket_env, deps):
 
 
 def test_no_upload_writes_files_without_uploading_or_env(monkeypatch, deps):
-    monkeypatch.delenv(TIME_SERIES_SPACE_ENV, raising=False)
-    monkeypatch.delenv(PORTFOLIO_SPACE_ENV, raising=False)
+    for env in (BUCKET_NAME_ENV, TIME_SERIES_FOLDER_ENV, PORTFOLIO_FOLDER_ENV):
+        monkeypatch.delenv(env, raising=False)
     _, _, uploader, kwargs = deps
     result = run_pipeline(upload=False, **kwargs)
     assert uploader.calls == []
@@ -191,8 +206,10 @@ def test_no_upload_writes_files_without_uploading_or_env(monkeypatch, deps):
     assert os.path.isfile(result.metadata_path)
 
 
-@pytest.mark.parametrize("missing", [TIME_SERIES_SPACE_ENV, PORTFOLIO_SPACE_ENV])
-def test_missing_bucket_env_fails_before_any_work(monkeypatch, bucket_env, deps, missing):
+@pytest.mark.parametrize(
+    "missing", [BUCKET_NAME_ENV, TIME_SERIES_FOLDER_ENV, PORTFOLIO_FOLDER_ENV]
+)
+def test_missing_upload_env_fails_before_any_work(monkeypatch, upload_env, deps, missing):
     monkeypatch.delenv(missing)
     tdm, trainer, uploader, kwargs = deps
     with pytest.raises(RuntimeError, match=missing):
@@ -202,7 +219,7 @@ def test_missing_bucket_env_fails_before_any_work(monkeypatch, bucket_env, deps,
     assert uploader.calls == []
 
 
-def test_arima_failure_uploads_nothing(bucket_env, deps):
+def test_arima_failure_uploads_nothing(upload_env, deps):
     _, _, uploader, kwargs = deps
     kwargs["trainer"] = FakeTrainer(fail=True)
     with pytest.raises(RuntimeError, match="ARIMA failed"):
@@ -210,28 +227,28 @@ def test_arima_failure_uploads_nothing(bucket_env, deps):
     assert uploader.calls == []
 
 
-def test_upload_failure_stops_before_completion_marker(bucket_env, deps):
+def test_upload_failure_stops_before_completion_marker(upload_env, deps):
     # If an upload fails part way, the error propagates and
     # optimization_metadata.yml (the completion marker) is never uploaded,
     # so the frontend does not list the incomplete date.
     _, _, _, kwargs = deps
 
     class FailOnH5Uploader(FakeUploader):
-        def upload_file(self, local_filename, bucket_name, remote_filename):
-            if remote_filename.endswith(".h5"):
+        def upload_file(self, local_filename, object_key):
+            if object_key.endswith(".h5"):
                 raise ConnectionError("upload failed")
-            super().upload_file(local_filename, bucket_name, remote_filename)
+            super().upload_file(local_filename, object_key)
 
     uploader = FailOnH5Uploader()
     kwargs["uploader"] = uploader
     with pytest.raises(ConnectionError):
         run_pipeline(**kwargs)
-    keys = [key for _, _, key in uploader.calls]
+    keys = [key for _, key in uploader.calls]
     assert len(keys) == 1 and keys[0].endswith("all_forecasts.csv")
 
 
 def test_optimization_failure_uploads_nothing_but_keeps_forecast_cache(
-    bucket_env, deps
+    upload_env, deps
 ):
     _, _, uploader, kwargs = deps
 

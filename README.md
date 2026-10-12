@@ -65,9 +65,11 @@ Here are the keys the scripts need to function:
 
 2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT`: Region, read/write/delete key, key id, and endpoint of the DigitalOcean S3/Spaces bucket. Set as appropriate for development or production environments. Obtain values from DigitalOcean or AWS environments.
 
-3. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`: Space names for portfolio and ARIMA time series data.
+3. `FSF_FRONT_END_BUCKET_NAME`: Name of the one DigitalOcean Space (S3 bucket) that holds all frontend data. `FSF_FRONT_END_BUCKET_ENDPOINT` must be the region-only endpoint (e.g. `https://nyc3.digitaloceanspaces.com`) without the Space name; the uploader refuses to run otherwise.
 
-Items 2 and 3 connect the backend to the front end.
+4. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`: despite their names, these are the names of two top-level folders inside that Space, holding the portfolio optimization and ARIMA time series data. Files are uploaded to `<folder>/YYYY-MM-DD/<file>`; see `INTERFACE_CONTRACT.md` for the full key layout.
+
+Items 2 through 4 connect the backend to the front end.
 
 ## Project structure
 
@@ -137,4 +139,4 @@ These modules are imported by the scripts and are not meant to be executed direc
 | `forecasting/ticker_predict.py`             | `ArimaWalkForward`: walk-forward ARIMA training over rolling windows; `load_or_train_forecasts` caches the result.                                      | No                                   |
 | `pipeline.py`                               | Orchestrates one backend run and its uploads (`csv`, then `.h5`, then `.yml` last).                                                                    | Yes                                  |
 | `storage/layout.py`                         | Builds the dated `output/` paths and matching bucket keys (`YYYY-MM-DD/<file>`).                                                                        | No                                   |
-| `storage/s3_uploader.py`                    | Uploads files to S3/Spaces buckets on AWS/DigitalOcean.                                                                                                 | Yes (other modules use it to upload) |
+| `storage/s3_uploader.py`                    | Uploads files to the one DigitalOcean Space (`FSF_FRONT_END_BUCKET_NAME`) by full object key; rejects non-region-only endpoints.                       | Yes (other modules use it to upload) |

@@ -1,14 +1,18 @@
 """
-Where each run's results live: locally under output/ and remotely in the
-frontend buckets. Both layouts share one date folder per run, named by the
-data as-of date (the last NYSE trading day in the run's price data):
+Where each run's results live: locally under output/ and remotely in the one
+frontend Space (S3 bucket). Both layouts share one date folder per run,
+named by the data as-of date (the last NYSE trading day in the run's price
+data):
 
-    output/<kind>/YYYY-MM-DD/<filename>    (local)
-    YYYY-MM-DD/<filename>                  (bucket key)
+    output/<kind>/YYYY-MM-DD/<filename>       (local)
+    <folder>/YYYY-MM-DD/<filename>            (object key in the Space)
 
-where <kind> is "portfolio_optimization" or "time_series". The local path
-minus its "output/<kind>/" part is the bucket key, so the two layouts cannot
-drift apart. All functions here are pure except ensure_parent_dir().
+where <kind> is "portfolio_optimization" or "time_series", and <folder> is
+the top-level folder in the Space for that kind (the value of
+PORTFOLIO_OPTIMIZATION_SPACE_NAME or TIME_SERIES_SPACE_NAME). The local path
+minus its "output/<kind>/" part equals the object key minus its "<folder>/"
+part, so the two layouts cannot drift apart. All functions here are pure
+except ensure_parent_dir().
 """
 
 import os
@@ -80,7 +84,8 @@ def as_of_date_str(index: pd.DatetimeIndex) -> str:
 
 def bucket_key(as_of: str, filename: str) -> str:
     """
-    Return the object key of a run's file in a frontend bucket.
+    Return the key of a run's file relative to its top-level folder in the
+    Space. Use object_key() for the full object key.
 
     Parameters
     ----------
@@ -98,6 +103,34 @@ def bucket_key(as_of: str, filename: str) -> str:
     _validate_as_of(as_of)
     _validate_filename(filename)
     return f"{as_of}/{filename}"
+
+
+def object_key(folder: str, as_of: str, filename: str) -> str:
+    """
+    Return the full object key of a run's file in the frontend Space, as
+    specified in INTERFACE_CONTRACT.md.
+
+    Parameters
+    ----------
+    folder : str
+        Top-level folder in the Space, i.e. the value of
+        PORTFOLIO_OPTIMIZATION_SPACE_NAME or TIME_SERIES_SPACE_NAME.
+
+    as_of : str
+        Data as-of date, YYYY-MM-DD.
+
+    filename : str
+        File name, e.g. "all_forecasts.csv".
+
+    Returns
+    -------
+    str
+        "<folder>/YYYY-MM-DD/<filename>".
+    """
+    if not isinstance(folder, str) or not folder:
+        raise ValueError(f"folder must be a non-empty string, got {folder!r}")
+    _validate_filename(folder)  # A single path component, like a file name.
+    return f"{folder}/{bucket_key(as_of, filename)}"
 
 
 def local_output_path(

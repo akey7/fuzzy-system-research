@@ -80,8 +80,9 @@ Because the human can't have Claude run anything, **any future reorganization is
 `.env` variable names (names only; never values):
 
 - `MASSIVE_API_KEY` — Massive.com market data API key
-- `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT` — DigitalOcean Spaces region, read/write/delete key, key id, endpoint
-- `PORTFOLIO_OPTIMIZATION_SPACE_NAME`, `TIME_SERIES_SPACE_NAME` — Space names for optimization and ARIMA time series data
+- `FSF_FRONT_END_BUCKET_NAME` — name of the one DigitalOcean Space (S3 bucket); `S3Uploader` passes it as `Bucket` and puts the folder in the key
+- `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT` (region-only, e.g. `https://nyc3.digitaloceanspaces.com`) — DigitalOcean Spaces region, read/write/delete key, key id, endpoint
+- `PORTFOLIO_OPTIMIZATION_SPACE_NAME`, `TIME_SERIES_SPACE_NAME` — despite the names, these are **top-level folder (key prefix) names inside one Space**, not bucket names (see `INTERFACE_CONTRACT.md`, "Where the data lives"). Do not rename these variables; the frontend and its Hugging Face secrets use the same names.
 
 The bucket variables point the backend at either dev or production. **Be careful with anything that could upload.** A change to upload logic can overwrite what the live frontend displays. Flag any change that alters what gets uploaded, where, or under what key.
 

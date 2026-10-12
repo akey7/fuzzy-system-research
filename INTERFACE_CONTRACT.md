@@ -2,18 +2,18 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 10 |
+| **Contract version** | 11 |
 | **Last updated** | 2026-10-12 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
-This file is stored **byte-for-byte identically** in both repos. It describes the files the backend uploads to S3-compatible buckets (DigitalOcean Spaces, accessed with `boto3`) and the frontend reads. Treat it as a public API.
+This file is stored **byte-for-byte identically** in both repos. It describes the files the backend uploads to one S3-compatible bucket (a DigitalOcean Space, accessed with `boto3`) and the frontend reads. Treat it as a public API.
 
 ## Rules for editing this file (humans and AI agents)
 
 1. **Edit the backend copy first**, then copy it unchanged into the frontend repo. Never edit only one copy, and never let the copies diverge.
 2. **Bump the contract version and add a changelog entry** for every change, including clarifications that change meaning.
 3. **Breaking changes** (anything in the list below) need explicit human approval. Describe the frontend impact before making the change, and prefer an additive alternative with a migration path.
-   - Renaming or removing a bucket key, file, YAML key, HDF5 group/dataset, or CSV column
+   - Renaming or removing an object key, top-level folder, file, YAML key, HDF5 group/dataset, or CSV column
    - Changing a data type, units, scaling, or date format
    - Changing the shape of an array or the meaning of a value
    - Changing the set of tickers or the covered date range in a way a reader could not detect from the data itself
@@ -26,32 +26,53 @@ Version 1 was written from the backend code. Version 2 was checked against real 
 
 ## Where the data lives
 
-Every file is stored under a **date prefix** `YYYY-MM-DD/`, one folder per run date, so past runs are kept:
+All data lives in **one DigitalOcean Space**, which is one S3 bucket. Inside it are **two top-level folders** (key prefixes). Their names are the *values* of two environment variables, which, despite their names, are **folder names, not bucket names**:
 
-| Environment variable (backend `.env`) | Object keys |
+| Environment variable | Meaning |
 | --- | --- |
-| `PORTFOLIO_OPTIMIZATION_SPACE_NAME` | `YYYY-MM-DD/optimization_metadata.yml`, `YYYY-MM-DD/portfolio_optimization_plot_data.h5` |
-| `TIME_SERIES_SPACE_NAME` | `YYYY-MM-DD/all_forecasts.csv` |
+| `PORTFOLIO_OPTIMIZATION_SPACE_NAME` | Name of the top-level folder holding the optimization files |
+| `TIME_SERIES_SPACE_NAME` | Name of the top-level folder holding the ARIMA forecasts |
 
-Both buckets are on the same DigitalOcean endpoint. Dev and production are selected by the `.env` values the backend and the frontend are each configured with; the key names are identical in both.
+Every file is stored under a **date prefix** `YYYY-MM-DD/` inside its folder, one date folder per run, so past runs are kept. Full object keys within the Space, where `<X>` means the value of environment variable `X`:
+
+```
+<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/optimization_metadata.yml
+<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/portfolio_optimization_plot_data.h5
+<TIME_SERIES_SPACE_NAME>/YYYY-MM-DD/all_forecasts.csv
+```
+
+Dev and production are selected by the configured Space and folder names; the key patterns are identical in both. In this document, **"folder"** means one of these two top-level folders, and **"date folder"** means a `YYYY-MM-DD/` prefix inside one.
+
+### Connecting
+
+- **Endpoint:** use the **region-only** endpoint `https://<region>.digitaloceanspaces.com`, pass the **Space name as the S3 `Bucket`**, and pass the full key (starting with the folder name) as the S3 `Key` or `Prefix`.
+- **Space name variable:** both the backend and the frontend read the Space name from `FSF_FRONT_END_BUCKET_NAME`. The backend uploads with `Bucket=<space>` and `Key="<folder>/YYYY-MM-DD/<file>"`, and refuses to run with an endpoint that names the Space.
+- **Avoid the Space-specific endpoint:** do **not** put the Space name in the endpoint host (`https://<space>.<region>.digitaloceanspaces.com`) and pass a folder name as `Bucket`. Uploads happen to land at the right key that way (boto3 sends path-style requests, so the "bucket" becomes the first key segment), but listings fail with `NoSuchKey`.
 
 ### The date prefix
 
 - **Meaning:** `YYYY-MM-DD` is the **data as-of date**: the last NYSE trading day in the price data used by that run, not the day the backend ran. A run on a Sunday stores Friday's results under Friday's date.
-  - For the optimization files it equals `date_updated.date_to` in that folder's `optimization_metadata.yml`.
+  - For the optimization files it equals `date_updated.date_to` in that date folder's `optimization_metadata.yml`.
   - For `all_forecasts.csv` it is the last `pred_date` with a non-empty actual price. The final row (the live forecast) is the next trading day after the folder date.
-- **Same-day re-runs** overwrite the files in that date's folder. Older dates are never modified or deleted by the backend.
-- **Format:** exactly `^\d{4}-\d{2}-\d{2}/` at the start of the key, zero-padded. Lexicographic order equals chronological order. Readers must **ignore every key that does not start with a valid date prefix**. In particular, root-level objects left over from contract v8 and earlier (`optimization_metadata.yml`, `portfolio_optimization_plot_data.h5`, `all_forecasts.csv` with no prefix) are stale and are no longer written; the human removes them by hand.
+- **Same-day re-runs** overwrite the files in that date folder. Older dates are never modified or deleted by the backend.
+- **Format:** the date prefix is the **first path segment after the top-level folder**. After removing `<folder>/` from the start of a key, the rest must start with exactly `^\d{4}-\d{2}-\d{2}/`, zero-padded. Lexicographic order equals chronological order.
+- **Stale objects:** readers must **ignore every key whose segment after the folder is not a valid date**. In particular, objects left directly under a folder by contract v8 and earlier (for example `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/optimization_metadata.yml`, `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/portfolio_optimization_plot_data.h5`, `<TIME_SERIES_SPACE_NAME>/all_forecasts.csv`) are stale and are no longer written; the human removes them by hand.
 - **Retention:** all dates are kept indefinitely. There is no pruning.
 
 ### Which dates are available
 
-A date is **available** only when its data is complete in **both** buckets:
+A date is **available** only when its data is complete in **both** folders:
 
-1. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` contains `YYYY-MM-DD/optimization_metadata.yml`. The backend uploads this file last of all three, so its presence means both optimization files for that date are complete (and, since v10, that the forecasts were uploaded just before).
-2. `TIME_SERIES_SPACE_NAME` contains `YYYY-MM-DD/all_forecasts.csv`.
+1. Key `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/optimization_metadata.yml` exists. The backend uploads this file last of all three, so its presence means both optimization files for that date are complete (and, since v10, that the forecasts were uploaded just before).
+2. Key `<TIME_SERIES_SPACE_NAME>/YYYY-MM-DD/all_forecasts.csv` exists.
 
-Since v10, one backend run computes everything first and then uploads all three files in the order `all_forecasts.csv`, `portfolio_optimization_plot_data.h5`, `optimization_metadata.yml`; if any computation fails, nothing is uploaded. Readers must still check both buckets, because dates written before v10 came from two separate scripts. Dates present in only one bucket (for example, only one of the two pre-v10 scripts was run) are **not** available and must not be offered to users. To find the dates, list each bucket with S3 `ListObjectsV2` using `Delimiter="/"`: the date folders come back as `CommonPrefixes` (for example `2026-10-09/`). Follow `ContinuationToken` pagination, since a listing returns at most 1,000 entries. Then confirm the marker object for each date (a `HeadObject`, or a listing with `Prefix="YYYY-MM-DD/"`).
+Since v10, one backend run computes everything first and then uploads all three files in the order `all_forecasts.csv`, `portfolio_optimization_plot_data.h5`, `optimization_metadata.yml`; if any computation fails, nothing is uploaded. Readers must still check both folders, because dates written before v10 came from two separate scripts. Dates present in only one folder (for example, only one of the two pre-v10 scripts was run) are **not** available and must not be offered to users.
+
+**To find the dates,** list each folder with S3 `ListObjectsV2` using `Bucket=<space>` and `Prefix="<folder>/"`:
+
+- Follow `ContinuationToken` pagination, since a listing returns at most 1,000 entries.
+- Strip the `<folder>/` prefix from each returned key, then match the date pattern above.
+- `Delimiter="/"` is optional. With it, date folders come back as `CommonPrefixes` such as `<folder>/2026-10-09/`, and you must still strip the folder prefix, then confirm the marker object (a `HeadObject`, or a listing with `Prefix="<folder>/YYYY-MM-DD/"`). Without it, the full keys are returned and the marker objects can be matched directly.
 
 General behavior of every file:
 
@@ -80,7 +101,7 @@ General behavior of every file:
 
 ## `optimization_metadata.yml`
 
-**Bucket:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Key:** `YYYY-MM-DD/optimization_metadata.yml`. **Format:** YAML (block style, keys sorted alphabetically), UTF-8. Parse it with a safe YAML loader. Date-like values are written as **quoted strings**, so loaders return strings, not date objects.
+**Folder:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Key:** `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/optimization_metadata.yml`. **Format:** YAML (block style, keys sorted alphabetically), UTF-8. Parse it with a safe YAML loader. Date-like values are written as **quoted strings**, so loaders return strings, not date objects.
 
 ### Example
 
@@ -166,7 +187,7 @@ Things to notice in the example:
 
 ## `portfolio_optimization_plot_data.h5`
 
-**Bucket:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Key:** `YYYY-MM-DD/portfolio_optimization_plot_data.h5`. **Format:** HDF5 (written with `h5py`). The file has five top-level groups. Each group has exactly two datasets named `xs` and `ys`: one-dimensional float64 arrays of equal length within the group. `xs` is the horizontal axis (risk), and `ys` is the vertical axis (return). All values are **annualized (arithmetic), in percent** (see "Shared conventions"), and the file contains no dates and no ticker names (use `optimization_metadata.yml` for those).
+**Folder:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Key:** `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/portfolio_optimization_plot_data.h5`. **Format:** HDF5 (written with `h5py`). The file has five top-level groups. Each group has exactly two datasets named `xs` and `ys`: one-dimensional float64 arrays of equal length within the group. `xs` is the horizontal axis (risk), and `ys` is the vertical axis (return). All values are **annualized (arithmetic), in percent** (see "Shared conventions"), and the file contains no dates and no ticker names (use `optimization_metadata.yml` for those).
 
 ### Root attributes (added in v4)
 
@@ -222,7 +243,7 @@ In the tangency line formula, `risk_free_rate` and `sharpe_ratio` are the YAML f
 
 ## `all_forecasts.csv`
 
-**Bucket:** `TIME_SERIES_SPACE_NAME`. **Key:** `YYYY-MM-DD/all_forecasts.csv`. **Format:** CSV with a header row, UTF-8, comma-separated, written by `pandas.DataFrame.to_csv(index=True)` (the index is the first column). Read it with the first column parsed as dates, e.g. `pandas.read_csv(..., index_col="pred_date", parse_dates=True)`.
+**Folder:** `TIME_SERIES_SPACE_NAME`. **Key:** `<TIME_SERIES_SPACE_NAME>/YYYY-MM-DD/all_forecasts.csv`. **Format:** CSV with a header row, UTF-8, comma-separated, written by `pandas.DataFrame.to_csv(index=True)` (the index is the first column). Read it with the first column parsed as dates, e.g. `pandas.read_csv(..., index_col="pred_date", parse_dates=True)`.
 
 ### Shape
 
@@ -264,12 +285,23 @@ The file does **not** contain RMSE, the selected `(p, q)` orders, confidence int
 4. **Show data dates.** Display the selected date (equal to `date_updated.date_to`) so users can tell how current the data is.
 5. **Fail soft.** If a file is missing or does not parse, show an explanatory message instead of crashing. Missing or partial data is expected while a run is mid-upload.
 6. **Label units.** Daily versus annualized, and percent versus dollars, must be stated wherever a value is shown.
-7. **Date selection.** Offer only *available* dates (see "Which dates are available"), newest first, with the newest selected by default. Load all three files from the **same** date folder; never mix dates across files. Ignore keys without a valid date prefix, including stale root-level objects from contract v8 and earlier.
+7. **Date selection.** Offer only *available* dates (see "Which dates are available"), newest first, with the newest selected by default. Load all three files from the **same** date in both folders; never mix dates across files. Ignore keys whose segment after the folder is not a valid date, including stale objects directly under a folder from contract v8 and earlier.
 8. **Do not assume consecutive dates.** Runs are manual, so dates have gaps (weekends, holidays, days not run).
 
 ## Verification status
 
-Checked against real backend output (2026-10-11):
+Checked against real backend output (2026-10-11), unless dated otherwise:
+
+- Storage layout (2026-10-12):
+  - **Console (the human):** the account has exactly one Space (bucket), whose name is the value of `FSF_FRONT_END_BUCKET_NAME`, in region `nyc3`.
+  - **Programmatic listing** with the recommended configuration (endpoint `https://nyc3.digitaloceanspaces.com`, `ListObjectsV2(Bucket=<space>, Prefix="<folder>/")`) returned exactly these keys:
+    - `time-series/2026-10-09/all_forecasts.csv`
+    - `portfolio-optimization/2026-10-09/optimization_metadata.yml`
+    - `portfolio-optimization/2026-10-09/portfolio_optimization_plot_data.h5`
+    - `portfolio-optimization/optimization_metadata.yml`, a stale pre-v9 object directly under the folder, which readers ignore.
+
+    So the folder values were `time-series` and `portfolio-optimization` at the time.
+  - **Folder names as buckets fail:** `ListObjectsV2` with a folder name as `Bucket` fails, with `NoSuchBucket` from the backend's configuration and `NoSuchKey` from the frontend's.
 
 - `optimization_metadata.yml` (v5 output): every key in the example above, including the v4 additions, quoted date strings, and floating-point noise in weights. The values are internally consistent: `sharpe_ratio` = (`annualized_return` − `risk_free_rate`) / `risk` = (34.343 − 4.05) / 12.440 = 2.435.
 - `portfolio_optimization_plot_data.h5` (v5 output, `h5dump -A`): the five root attributes with the documented values and types (variable-length UTF-8 strings; `periods_per_year` is `H5T_STD_I64LE`), plus group names, dataset names, dtype (`H5T_IEEE_F64LE`), and shapes (100, 1, 1, 10000, 100).
@@ -280,7 +312,7 @@ Checked against real backend output (2026-10-11):
 
 **Not yet** verified against real data (derived from the code):
 
-- The v9 date-prefixed keys (`YYYY-MM-DD/...`) in both buckets, that the folder date equals `date_updated.date_to`, and the upload order (`.h5` before `optimization_metadata.yml`). The key and path construction is covered by unit tests (`tests/test_layout.py`).
+- That the date folder equals `date_updated.date_to`, and the upload order (forecasts, `.h5`, then `optimization_metadata.yml`). The construction of the date part of the key and of local paths is covered by unit tests (`tests/test_layout.py`).
 - The v8 NYSE calendar behavior on real data (covered by unit tests in `tests/test_date_manager.py`).
 - `NaN` entries in `efficient_frontier/xs` (inferred from the code for infeasible target returns). Readers must handle `NaN` regardless.
 
@@ -288,6 +320,7 @@ Checked against real backend output (2026-10-11):
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 11 | 2026-10-12 | **Documentation correction; no objects move and key strings are unchanged.** Earlier versions described `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME` as bucket names. They are top-level folder names inside **one** Space (bucket), so the full keys are `<folder>/YYYY-MM-DD/<file>`. Uploads landed correctly only because boto3, given an endpoint containing the Space name, sends path-style requests. Rewrote "Where the data lives", "The date prefix", "Which dates are available", the per-file Folder/Key lines, and reader requirement 7; added "Connecting". Frontend must: add `FSF_FRONT_END_BUCKET_NAME` (the Space name), use the region-only endpoint `https://<region>.digitaloceanspaces.com`, list each folder with `ListObjectsV2(Bucket=<space>, Prefix="<folder>/")` with pagination, strip the folder prefix before matching dates, and read objects with `Bucket=<space>`, `Key="<folder>/YYYY-MM-DD/<file>"`. The backend was changed the same way (it reads `FSF_FRONT_END_BUCKET_NAME` and passes the folder in the key), which produces byte-identical object keys. |
 | 10 | 2026-10-12 | Non-breaking; no change to keys, file names, formats, columns, shapes, or units. The backend now has a single entry point that produces all three files in one run: one price download, ARIMA trained on the last 40 trading sessions of that data (the same window as before), then the optimization. Uploads happen only after every computation succeeds, in the order `all_forecasts.csv`, `.h5`, `optimization_metadata.yml`, so the metadata file now marks a complete date across both buckets. The availability rule (both buckets) is unchanged because earlier dates came from two separate scripts. |
 | 9 | 2026-10-12 | **Breaking (keys).** Every file moves under a date prefix `YYYY-MM-DD/` (the data as-of date = last NYSE trading day in the run's data), keeping one folder per run instead of overwriting. File names, formats, columns, shapes, and units are unchanged. Root-level keys are **no longer written** (clean break, no dual-write); stale root objects remain until removed by hand. Defined date availability as the intersection of both buckets, with `optimization_metadata.yml` as the optimization completion marker. Frontend must: list date prefixes in both buckets (`ListObjectsV2`, `Delimiter="/"`, paginated), keep only dates complete in both, show them in a dropdown newest-first with the newest selected by default, load all files from the selected date's folder, and ignore root-level objects. Ship the frontend change with the first prefixed upload to production. |
 | 8 | 2026-10-12 | Calendar fix, non-breaking (no change to keys, columns, shapes, or units): business days now follow the NYSE trading calendar instead of the US federal holiday calendar. Effects: `pred_date` and the ARIMA training windows skip NYSE closures (e.g. Good Friday) and include federal-only holidays (e.g. Columbus Day, Veterans Day), and downloaded data now ends on the last NYSE session instead of possibly omitting one. |

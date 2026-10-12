@@ -55,8 +55,8 @@ def main() -> None:
         refresh_data=args.refresh_data,
     )
     print(f"Done: {result.as_of} (ARIMA {'trained' if result.trained_arima else 'cached'})")
-    for bucket, key in result.uploaded:
-        print(f"  uploaded {bucket}/{key}")
+    for key in result.uploaded:
+        print(f"  uploaded {key}")
 
 
 if __name__ == "__main__":

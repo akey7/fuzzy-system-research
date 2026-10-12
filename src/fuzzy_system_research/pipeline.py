@@ -8,7 +8,8 @@ Order of operations:
 2. ARIMA: trained on the last ARIMA_WINDOW_SESSIONS sessions of that data,
    cached as output/time_series/<as-of date>/all_forecasts.csv.
 3. Optimization: written to output/portfolio_optimization/<as-of date>/.
-4. Upload, only after every step above succeeded: all_forecasts.csv, then
+4. Upload, only after every step above succeeded, to the one frontend Space
+   under <folder>/<as-of date>/: all_forecasts.csv, then
    portfolio_optimization_plot_data.h5, then optimization_metadata.yml last,
    so the metadata file marks a complete date (see INTERFACE_CONTRACT.md).
 
@@ -43,29 +44,31 @@ from fuzzy_system_research.storage.layout import (
     PORTFOLIO_OPTIMIZATION,
     TIME_SERIES,
     as_of_date_str,
-    bucket_key,
     ensure_parent_dir,
     local_output_path,
+    object_key,
 )
-from fuzzy_system_research.storage.s3_uploader import S3Uploader
+from fuzzy_system_research.storage.s3_uploader import BUCKET_NAME_ENV, S3Uploader
 
 # Trading sessions of price data downloaded for each run (about one year).
 OPTIMIZATION_LOOKBACK_SESSIONS = 252
 
 PRICE_DOWNLOAD_FOLDER = os.path.join("input", "annual")
 
-PORTFOLIO_SPACE_ENV = "PORTFOLIO_OPTIMIZATION_SPACE_NAME"
-TIME_SERIES_SPACE_ENV = "TIME_SERIES_SPACE_NAME"
+# Despite their names, these environment variables hold top-level folder
+# names inside the one frontend Space, not bucket names. They keep these
+# names because the frontend and its deployment secrets use them too.
+PORTFOLIO_FOLDER_ENV = "PORTFOLIO_OPTIMIZATION_SPACE_NAME"
+TIME_SERIES_FOLDER_ENV = "TIME_SERIES_SPACE_NAME"
 
 
 class Uploader(Protocol):
     """
-    Anything that uploads a local file to a bucket, e.g. S3Uploader.
+    Anything that uploads a local file to a full object key in the frontend
+    Space, e.g. S3Uploader.
     """
 
-    def upload_file(
-        self, local_filename: str, bucket_name: str, remote_filename: str
-    ) -> None: ...
+    def upload_file(self, local_filename: str, object_key: str) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -73,8 +76,8 @@ class PipelineResult:
     """
     What a run produced: the as-of date, the local files written, whether
     ARIMA models were trained (False when the cached forecasts were reused),
-    and the (bucket, key) pairs uploaded, in upload order (empty when
-    uploads were skipped).
+    and the object keys uploaded, in upload order (empty when uploads were
+    skipped).
     """
 
     as_of: str
@@ -82,22 +85,24 @@ class PipelineResult:
     plot_data_path: str
     metadata_path: str
     trained_arima: bool
-    uploaded: tuple[tuple[str, str], ...]
+    uploaded: tuple[str, ...]
 
 
-def _bucket_names() -> tuple[str, str]:
+def _upload_folders() -> tuple[str, str]:
     """
-    Read the time series and portfolio optimization bucket names from the
-    environment. Raises RuntimeError naming any variable that is not set.
+    Check the environment for everything an upload needs, and return the
+    time series and portfolio optimization folder names. Raises RuntimeError
+    naming every variable that is not set: the Space name and both folders.
     """
-    names = {env: os.getenv(env) for env in (TIME_SERIES_SPACE_ENV, PORTFOLIO_SPACE_ENV)}
-    missing = [env for env, value in names.items() if not value]
+    envs = (BUCKET_NAME_ENV, TIME_SERIES_FOLDER_ENV, PORTFOLIO_FOLDER_ENV)
+    values = {env: os.getenv(env) for env in envs}
+    missing = [env for env, value in values.items() if not value]
     if missing:
         raise RuntimeError(
             f"Missing environment variable(s) {', '.join(missing)}; set them in .env "
             "or run with --no-upload."
         )
-    return names[TIME_SERIES_SPACE_ENV], names[PORTFOLIO_SPACE_ENV]
+    return values[TIME_SERIES_FOLDER_ENV], values[PORTFOLIO_FOLDER_ENV]
 
 
 def run_pipeline(
@@ -120,9 +125,11 @@ def run_pipeline(
     optimization_metadata.yml is uploaded last, a partially uploaded date is
     never marked complete, and re-running uploads it again.
 
-    Bucket names are read from the environment (load .env before calling).
-    When upload is True they are checked before any work starts, so a
-    missing variable fails fast instead of after a long ARIMA run.
+    The Space name (FSF_FRONT_END_BUCKET_NAME) and the two top-level folder
+    names are read from the environment (load .env before calling). When
+    upload is True they, and the endpoint (via S3Uploader), are checked
+    before any work starts, so a configuration error fails fast instead of
+    after a long ARIMA run.
 
     Parameters
     ----------
@@ -152,7 +159,8 @@ def run_pipeline(
         Summary of the run.
     """
     if upload:
-        time_series_bucket, portfolio_bucket = _bucket_names()
+        time_series_folder, portfolio_folder = _upload_folders()
+        uploader = uploader if uploader is not None else S3Uploader()
 
     # 1. Prices
     tdm = tdm if tdm is not None else TickerDownloadManager(PRICE_DOWNLOAD_FOLDER)
@@ -201,19 +209,18 @@ def run_pipeline(
     print(f"Saved {metadata_path}")
 
     # 4. Uploads, metadata last (it marks the date as complete)
-    uploaded: list[tuple[str, str]] = []
+    uploaded: list[str] = []
     if not upload:
         print("Skipping uploads (--no-upload).")
     else:
-        uploader = uploader if uploader is not None else S3Uploader()
-        for local_path, bucket, filename in (
-            (forecasts_path, time_series_bucket, ALL_FORECASTS_FILENAME),
-            (plot_data_path, portfolio_bucket, OPTIMIZATION_PLOT_DATA_FILENAME),
-            (metadata_path, portfolio_bucket, OPTIMIZATION_METADATA_FILENAME),
+        for local_path, folder, filename in (
+            (forecasts_path, time_series_folder, ALL_FORECASTS_FILENAME),
+            (plot_data_path, portfolio_folder, OPTIMIZATION_PLOT_DATA_FILENAME),
+            (metadata_path, portfolio_folder, OPTIMIZATION_METADATA_FILENAME),
         ):
-            key = bucket_key(as_of, filename)
-            uploader.upload_file(local_path, bucket, key)
-            uploaded.append((bucket, key))
+            key = object_key(folder, as_of, filename)
+            uploader.upload_file(local_path, key)
+            uploaded.append(key)
 
     return PipelineResult(
         as_of=as_of,

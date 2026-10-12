@@ -21,6 +21,7 @@ from fuzzy_system_research.storage.layout import (
     bucket_key,
     ensure_parent_dir,
     local_output_path,
+    object_key,
 )
 
 
@@ -69,6 +70,37 @@ def test_bucket_key_rejects_bad_dates(bad_date):
 def test_bucket_key_rejects_bad_filenames(bad_name):
     with pytest.raises(ValueError):
         bucket_key("2026-10-12", bad_name)
+
+
+# object_key
+
+
+def test_object_key_is_folder_date_file():
+    assert object_key("time-series", "2026-10-09", ALL_FORECASTS_FILENAME) == (
+        "time-series/2026-10-09/all_forecasts.csv"
+    )
+    assert object_key(
+        "portfolio-optimization", "2026-10-09", OPTIMIZATION_METADATA_FILENAME
+    ) == ("portfolio-optimization/2026-10-09/optimization_metadata.yml")
+
+
+def test_object_key_is_folder_plus_bucket_key():
+    assert object_key("f", "2026-10-12", "x.csv") == "f/" + bucket_key(
+        "2026-10-12", "x.csv"
+    )
+
+
+@pytest.mark.parametrize("bad_folder", ["", None, "a/b", "..", ".", "a\\b"])
+def test_object_key_rejects_bad_folders(bad_folder):
+    with pytest.raises(ValueError):
+        object_key(bad_folder, "2026-10-12", ALL_FORECASTS_FILENAME)
+
+
+def test_object_key_validates_date_and_filename():
+    with pytest.raises(ValueError):
+        object_key("f", "2026-1-5", ALL_FORECASTS_FILENAME)
+    with pytest.raises(ValueError):
+        object_key("f", "2026-10-12", "a/b.csv")
 
 
 # local_output_path
