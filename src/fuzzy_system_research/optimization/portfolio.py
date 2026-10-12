@@ -44,7 +44,7 @@ def annualize_risk(
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
 ) -> np.ndarray | np.float64:
     """
-    Annualize the standard deviation of daily returns: daily σ × sqrt(periods_per_year).
+    Annualize the standard deviation of daily returns: daily σ * sqrt(periods_per_year).
 
     Assumes daily returns are serially uncorrelated. Units are preserved, so
     percent per day becomes percent per year. NaN values pass through
@@ -72,9 +72,9 @@ def annualize_sharpe_ratio(
 ) -> float:
     """
     Annualize a Sharpe ratio computed from daily returns and a daily
-    risk-free rate: daily Sharpe × sqrt(periods_per_year).
+    risk-free rate: daily Sharpe * sqrt(periods_per_year).
 
-    This equals (annualized return − annualized risk-free rate) / annualized
+    This equals (annualized return - annualized risk-free rate) / annualized
     risk when both returns are annualized arithmetically with
     annualize_return() and risk with annualize_risk().
 
