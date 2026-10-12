@@ -5,8 +5,8 @@ import boto3
 from botocore.client import Config
 
 # Name of the environment variable holding the name of the one frontend
-# Space (S3 bucket). PORTFOLIO_OPTIMIZATION_SPACE_NAME and
-# TIME_SERIES_SPACE_NAME are top-level folders inside it, not buckets.
+# Space (S3 bucket). The two top-level folders inside it are named by
+# FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER and FSF_FRONT_END_TIME_SERIES_FOLDER.
 BUCKET_NAME_ENV = "FSF_FRONT_END_BUCKET_NAME"
 
 

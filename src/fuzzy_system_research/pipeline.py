@@ -55,11 +55,11 @@ OPTIMIZATION_LOOKBACK_SESSIONS = 252
 
 PRICE_DOWNLOAD_FOLDER = os.path.join("input", "annual")
 
-# Despite their names, these environment variables hold top-level folder
-# names inside the one frontend Space, not bucket names. They keep these
-# names because the frontend and its deployment secrets use them too.
-PORTFOLIO_FOLDER_ENV = "PORTFOLIO_OPTIMIZATION_SPACE_NAME"
-TIME_SERIES_FOLDER_ENV = "TIME_SERIES_SPACE_NAME"
+# Environment variables holding the names of the two top-level folders inside
+# the one frontend Space. Dev and production share the Space and differ only
+# in these folder names.
+PORTFOLIO_FOLDER_ENV = "FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER"
+TIME_SERIES_FOLDER_ENV = "FSF_FRONT_END_TIME_SERIES_FOLDER"
 
 
 class Uploader(Protocol):

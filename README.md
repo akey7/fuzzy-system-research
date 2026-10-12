@@ -67,7 +67,7 @@ Here are the keys the scripts need to function:
 
 3. `FSF_FRONT_END_BUCKET_NAME`: Name of the one DigitalOcean Space (S3 bucket) that holds all frontend data. `FSF_FRONT_END_BUCKET_ENDPOINT` must be the region-only endpoint (e.g. `https://nyc3.digitaloceanspaces.com`) without the Space name; the uploader refuses to run otherwise.
 
-4. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`: despite their names, these are the names of two top-level folders inside that Space, holding the portfolio optimization and ARIMA time series data. Files are uploaded to `<folder>/YYYY-MM-DD/<file>`; see `INTERFACE_CONTRACT.md` for the full key layout.
+4. `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER` and `FSF_FRONT_END_TIME_SERIES_FOLDER`: names of the two top-level folders inside that Space, holding the portfolio optimization and ARIMA time series data. Dev and production share the Space and use different folder names. Files are uploaded to `<folder>/YYYY-MM-DD/<file>`; see `INTERFACE_CONTRACT.md` for the full key layout.
 
 Items 2 through 4 connect the backend to the front end.
 

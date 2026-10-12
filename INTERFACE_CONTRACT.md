@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 12 |
+| **Contract version** | 13 |
 | **Last updated** | 2026-10-12 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -26,19 +26,22 @@ Version 1 was written from the backend code. Version 2 was checked against real 
 
 ## Where the data lives
 
-All data lives in **one DigitalOcean Space**, which is one S3 bucket. Inside it are **two top-level folders** (key prefixes). Their names are the *values* of two environment variables, which, despite their names, are **folder names, not bucket names**:
+All data lives in **one DigitalOcean Space**, which is one S3 bucket. Inside it are **two top-level folders** (key prefixes), whose names are the values of two environment variables. Both the backend and the frontend use these variable names:
 
 | Environment variable | Meaning |
 | --- | --- |
-| `PORTFOLIO_OPTIMIZATION_SPACE_NAME` | Name of the top-level folder holding the optimization files |
-| `TIME_SERIES_SPACE_NAME` | Name of the top-level folder holding the ARIMA forecasts |
+| `FSF_FRONT_END_BUCKET_NAME` | Name of the Space (the S3 bucket) |
+| `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER` | Name of the top-level folder holding the optimization files |
+| `FSF_FRONT_END_TIME_SERIES_FOLDER` | Name of the top-level folder holding the ARIMA forecasts |
+
+**Dev and production share the one Space and differ only in the folder names.** Pointing a frontend or backend at dev or production means setting these two folder variables, so both sides must use the same pair of values for the same environment. The folder variables were named `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME` before contract v13; the old names are no longer read.
 
 Every file is stored under a **date prefix** `YYYY-MM-DD/` inside its folder, one date folder per run, so past runs are kept. Full object keys within the Space, where `<X>` means the value of environment variable `X`:
 
 ```
-<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/optimization_metadata.yml
-<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/portfolio_optimization_plot_data.h5
-<TIME_SERIES_SPACE_NAME>/YYYY-MM-DD/all_forecasts.csv
+<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/optimization_metadata.yml
+<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/portfolio_optimization_plot_data.h5
+<FSF_FRONT_END_TIME_SERIES_FOLDER>/YYYY-MM-DD/all_forecasts.csv
 ```
 
 Dev and production are selected by the configured Space and folder names; the key patterns are identical in both. In this document, **"folder"** means one of these two top-level folders, and **"date folder"** means a `YYYY-MM-DD/` prefix inside one.
@@ -56,15 +59,15 @@ Dev and production are selected by the configured Space and folder names; the ke
   - For `all_forecasts.csv` it is the last `pred_date` with a non-empty actual price. The final row (the live forecast) is the next trading day after the folder date.
 - **Same-day re-runs** overwrite the files in that date folder. Older dates are never modified or deleted by the backend.
 - **Format:** the date prefix is the **first path segment after the top-level folder**. After removing `<folder>/` from the start of a key, the rest must start with exactly `^\d{4}-\d{2}-\d{2}/`, zero-padded. Lexicographic order equals chronological order.
-- **Stale objects:** readers must **ignore every key whose segment after the folder is not a valid date**. In particular, objects left directly under a folder by contract v8 and earlier (for example `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/optimization_metadata.yml`, `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/portfolio_optimization_plot_data.h5`, `<TIME_SERIES_SPACE_NAME>/all_forecasts.csv`) are stale and are no longer written; the human removes them by hand.
+- **Stale objects:** readers must **ignore every key whose segment after the folder is not a valid date**. In particular, objects left directly under a folder by contract v8 and earlier (for example `<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/optimization_metadata.yml`, `<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/portfolio_optimization_plot_data.h5`, `<FSF_FRONT_END_TIME_SERIES_FOLDER>/all_forecasts.csv`) are stale and are no longer written; the human removes them by hand.
 - **Retention:** all dates are kept indefinitely. There is no pruning.
 
 ### Which dates are available
 
 A date is **available** only when its data is complete in **both** folders:
 
-1. Key `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/optimization_metadata.yml` exists. The backend uploads this file last of all three, so its presence means both optimization files for that date are complete (and, since v10, that the forecasts were uploaded just before).
-2. Key `<TIME_SERIES_SPACE_NAME>/YYYY-MM-DD/all_forecasts.csv` exists.
+1. Key `<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/optimization_metadata.yml` exists. The backend uploads this file last of all three, so its presence means both optimization files for that date are complete (and, since v10, that the forecasts were uploaded just before).
+2. Key `<FSF_FRONT_END_TIME_SERIES_FOLDER>/YYYY-MM-DD/all_forecasts.csv` exists.
 
 Since v10, one backend run computes everything first and then uploads all three files in the order `all_forecasts.csv`, `portfolio_optimization_plot_data.h5`, `optimization_metadata.yml`; if any computation fails, nothing is uploaded. Readers must still check both folders, because dates written before v10 came from two separate scripts. Dates present in only one folder (for example, only one of the two pre-v10 scripts was run) are **not** available and must not be offered to users.
 
@@ -101,7 +104,7 @@ General behavior of every file:
 
 ## `optimization_metadata.yml`
 
-**Folder:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Key:** `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/optimization_metadata.yml`. **Format:** YAML (block style, keys sorted alphabetically), UTF-8. Parse it with a safe YAML loader. Date-like values are written as **quoted strings**, so loaders return strings, not date objects.
+**Folder:** `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`. **Key:** `<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/optimization_metadata.yml`. **Format:** YAML (block style, keys sorted alphabetically), UTF-8. Parse it with a safe YAML loader. Date-like values are written as **quoted strings**, so loaders return strings, not date objects.
 
 ### Example
 
@@ -187,7 +190,7 @@ Things to notice in the example:
 
 ## `portfolio_optimization_plot_data.h5`
 
-**Folder:** `PORTFOLIO_OPTIMIZATION_SPACE_NAME`. **Key:** `<PORTFOLIO_OPTIMIZATION_SPACE_NAME>/YYYY-MM-DD/portfolio_optimization_plot_data.h5`. **Format:** HDF5 (written with `h5py`). The file has five top-level groups. Each group has exactly two datasets named `xs` and `ys`: one-dimensional float64 arrays of equal length within the group. `xs` is the horizontal axis (risk), and `ys` is the vertical axis (return). All values are **annualized (arithmetic), in percent** (see "Shared conventions"), and the file contains no dates and no ticker names (use `optimization_metadata.yml` for those).
+**Folder:** `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`. **Key:** `<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/portfolio_optimization_plot_data.h5`. **Format:** HDF5 (written with `h5py`). The file has five top-level groups. Each group has exactly two datasets named `xs` and `ys`: one-dimensional float64 arrays of equal length within the group. `xs` is the horizontal axis (risk), and `ys` is the vertical axis (return). All values are **annualized (arithmetic), in percent** (see "Shared conventions"), and the file contains no dates and no ticker names (use `optimization_metadata.yml` for those).
 
 ### Root attributes (added in v4)
 
@@ -243,7 +246,7 @@ In the tangency line formula, `risk_free_rate` and `sharpe_ratio` are the YAML f
 
 ## `all_forecasts.csv`
 
-**Folder:** `TIME_SERIES_SPACE_NAME`. **Key:** `<TIME_SERIES_SPACE_NAME>/YYYY-MM-DD/all_forecasts.csv`. **Format:** CSV with a header row, UTF-8, comma-separated, written by `pandas.DataFrame.to_csv(index=True)` (the index is the first column). Read it with the first column parsed as dates, e.g. `pandas.read_csv(..., index_col="pred_date", parse_dates=True)`.
+**Folder:** `FSF_FRONT_END_TIME_SERIES_FOLDER`. **Key:** `<FSF_FRONT_END_TIME_SERIES_FOLDER>/YYYY-MM-DD/all_forecasts.csv`. **Format:** CSV with a header row, UTF-8, comma-separated, written by `pandas.DataFrame.to_csv(index=True)` (the index is the first column). Read it with the first column parsed as dates, e.g. `pandas.read_csv(..., index_col="pred_date", parse_dates=True)`.
 
 ### Shape
 
@@ -322,6 +325,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 13 | 2026-10-12 | **Configuration rename; no objects move and key strings are unchanged.** The environment variables naming the two top-level folders are renamed so their names say what they hold: `PORTFOLIO_OPTIMIZATION_SPACE_NAME` is now `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, and `TIME_SERIES_SPACE_NAME` is now `FSF_FRONT_END_TIME_SERIES_FOLDER`. Values are unchanged. No fallback: the backend reads only the new names, and the human has already renamed them in the backend `.env` for dev and production. Documented that dev and production share the one Space and differ only in folder names, and listed `FSF_FRONT_END_BUCKET_NAME` with the folder variables. Frontend must: read the new names, rename its Hugging Face secrets and any local `.env` (same values), and drop the old names. |
 | 12 | 2026-10-12 | Documentation only; no change to keys, formats, or reader behavior. The v11 text was amended in place after it was first written, so a copy taken earlier may differ. This version is the reconciled text for both repos. Amendments since the first v11 text: the "Connecting" section states that the backend also reads `FSF_FRONT_END_BUCKET_NAME` and uploads with `Bucket=<space>`, `Key="<folder>/YYYY-MM-DD/<file>"`; "Verification status" records the programmatic listing of the real keys, the deleted stale object, and a second listing after the backend change; the v11 changelog entry notes the backend change. Frontend: replace its copy with this file. |
 | 11 | 2026-10-12 | **Documentation correction; no objects move and key strings are unchanged.** Earlier versions described `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME` as bucket names. They are top-level folder names inside **one** Space (bucket), so the full keys are `<folder>/YYYY-MM-DD/<file>`. Uploads landed correctly only because boto3, given an endpoint containing the Space name, sends path-style requests. Rewrote "Where the data lives", "The date prefix", "Which dates are available", the per-file Folder/Key lines, and reader requirement 7; added "Connecting". Frontend must: add `FSF_FRONT_END_BUCKET_NAME` (the Space name), use the region-only endpoint `https://<region>.digitaloceanspaces.com`, list each folder with `ListObjectsV2(Bucket=<space>, Prefix="<folder>/")` with pagination, strip the folder prefix before matching dates, and read objects with `Bucket=<space>`, `Key="<folder>/YYYY-MM-DD/<file>"`. The backend was changed the same way (it reads `FSF_FRONT_END_BUCKET_NAME` and passes the folder in the key), which produces byte-identical object keys. |
 | 10 | 2026-10-12 | Non-breaking; no change to keys, file names, formats, columns, shapes, or units. The backend now has a single entry point that produces all three files in one run: one price download, ARIMA trained on the last 40 trading sessions of that data (the same window as before), then the optimization. Uploads happen only after every computation succeeds, in the order `all_forecasts.csv`, `.h5`, `optimization_metadata.yml`, so the metadata file now marks a complete date across both buckets. The availability rule (both buckets) is unchanged because earlier dates came from two separate scripts. |
