@@ -94,7 +94,7 @@ def annualize_sharpe_ratio(
     return float(daily_sharpe_ratio * np.sqrt(periods_per_year))
 
 
-def softmax_random_distribution(D):
+def softmax_random_distribution(D, rng: np.random.Generator | None = None):
     """
     Generates a NumPy array of D random floats that sum to 1.0 using the softmax function.
 
@@ -110,6 +110,10 @@ def softmax_random_distribution(D):
         The desired number of elements (dimension) in the output array.
         Must be a positive integer.
 
+    rng : np.random.Generator, optional
+        Random number generator to draw from, e.g. for reproducible tests.
+        If None (the default), NumPy's global random state is used.
+
     Returns
     -------
     np.ndarray
@@ -121,14 +125,20 @@ def softmax_random_distribution(D):
     """
     if not isinstance(D, int) or D <= 0:
         raise ValueError("Dimension D must be a positive integer.")
-    random_inputs = np.random.randn(D)
+    random_inputs = np.random.randn(D) if rng is None else rng.standard_normal(D)
     stable_inputs = random_inputs - np.max(random_inputs)
     exponentials = np.exp(stable_inputs)
     softmax_output = exponentials / np.sum(exponentials)
     return softmax_output
 
 
-def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
+def simulate_portfolios(
+    tdm,
+    mean_returns,
+    cov_np,
+    n_portfolios=10_000,
+    rng: np.random.Generator | None = None,
+):
     """
     Monte Carlo simulation of portfolios to plot as dots on the efficient
     frontier.
@@ -136,16 +146,21 @@ def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
     Parameters
     ----------
     tdm : TickerDownloadManager
-        Ticker data
+        Ticker data. Only its tickers attribute (its length) is used, so any
+        object with a tickers sequence works.
 
     mean_returns : np.array of float
-        Mean returns of the potfolio.
+        Mean returns of the portfolio.
 
     cov_np : np.array of float
         Covariance matrix.
 
     n_portfolios : int, optional
         Number of portfolios to simulate, defaults to 10,000.
+
+    rng : np.random.Generator, optional
+        Random number generator for reproducible simulations. If None (the
+        default), NumPy's global random state is used.
 
     Returns
     -------
@@ -161,7 +176,7 @@ def simulate_portfolios(tdm, mean_returns, cov_np, n_portfolios=10_000):
         # w = np.random.random(D) * rand_range - rand_range / 2  # Allows short selling
         # w[-1] = 1 - w[:-1].sum()
         # np.random.shuffle(w)
-        w = softmax_random_distribution(D)  # No short selling
+        w = softmax_random_distribution(D, rng=rng)  # No short selling
         random_weights.append(w)
         simulated_return = mean_returns.dot(w)
         simulated_risk = np.sqrt(w.dot(cov_np).dot(w))

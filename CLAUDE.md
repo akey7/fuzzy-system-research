@@ -43,14 +43,16 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 
 | File | Role | Run directly? | Uploads? |
 | --- | --- | --- | --- |
-| `scripts/portfolio_optimization.py` | `main()`: fetch adjusted closes; max-Sharpe and min-variance weights, efficient frontier, Monte Carlo; write `output/` files and upload | Yes | Yes |
-| `scripts/ticker_predict_upload.py` | Run `TickerPredictUpload` (fit a month's worth of ARIMA models) | Yes | Yes |
+| `scripts/run_optimization_and_time_series.py` | The single backend entry point: parses `--no-upload`, `--retrain-arima`, `--refresh-data`, loads `.env`, calls `pipeline.run_pipeline()` | Yes | Yes |
 | `scripts/ticker_download_to_csv.py` | Download one symbol from Massive.com to CSV | Yes | No |
 | `src/fuzzy_system_research/data/ticker_download_manager.py` | Download new data or retrieve cached data | No | No |
 | `src/fuzzy_system_research/data/date_manager.py` | Date and business-day calculations (NYSE calendar via `exchange_calendars`) | No | No |
-| `src/fuzzy_system_research/optimization/portfolio.py` | Simulation, min-variance, efficient frontier, risk-free rate, max-Sharpe | No | No |
+| `src/fuzzy_system_research/data/prices.py` | Pure helpers: pivot long prices to wide; last N trading sessions | No | No |
+| `src/fuzzy_system_research/optimization/portfolio.py` | Simulation, min-variance, efficient frontier, risk-free rate, max-Sharpe, annualization helpers | No | No |
+| `src/fuzzy_system_research/optimization/workflow.py` | `run_portfolio_optimization()` → `OptimizationResult` (annualized); `.h5`/`.yml` writers | No | No |
 | `src/fuzzy_system_research/forecasting/arima_models.py` | ARIMA training on price data | No | No |
-| `src/fuzzy_system_research/forecasting/ticker_predict.py` | `TickerPredictUpload`: walk-forward ARIMA workflow and upload | No | Yes |
+| `src/fuzzy_system_research/forecasting/ticker_predict.py` | `ArimaWalkForward` (walk-forward ARIMA) and `load_or_train_forecasts()` (per-date cache) | No | No |
+| `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (252 sessions) → ARIMA on the last 40 → optimization → uploads (csv, h5, yml last) only if all succeed; dependencies injectable for tests | No | Yes |
 | `src/fuzzy_system_research/storage/layout.py` | Pure helpers for dated `output/` paths and bucket keys; the single source of truth for both layouts | No | No |
 | `src/fuzzy_system_research/storage/s3_uploader.py` | S3/Spaces upload helper | No | Used by others |
 
@@ -58,7 +60,7 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 
 Data directories (contents are **not** committed to git; the human creates them and populates them by running the scripts):
 
-- `input/` — risk-free rate data; `input/annual/` — annual ticker data; `input/monthly/` — monthly ticker data
+- `input/` — risk-free rate data; `input/annual/` — cached price downloads used by both ARIMA and optimization; `input/monthly/` — legacy, no longer read
 - `output/` — results of runs, mirroring the buckets: `output/portfolio_optimization/YYYY-MM-DD/` and `output/time_series/YYYY-MM-DD/` (data as-of date). Build these paths and bucket keys only through `storage/layout.py`.
 
 Because the human can't have Claude run anything, **any future reorganization is a pure code/path refactor.** When doing it:

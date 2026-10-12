@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 9 |
+| **Contract version** | 10 |
 | **Last updated** | 2026-10-12 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -48,15 +48,15 @@ Both buckets are on the same DigitalOcean endpoint. Dev and production are selec
 
 A date is **available** only when its data is complete in **both** buckets:
 
-1. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` contains `YYYY-MM-DD/optimization_metadata.yml`. The backend uploads the `.h5` file first and this file last, so its presence means both optimization files for that date are complete.
+1. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` contains `YYYY-MM-DD/optimization_metadata.yml`. The backend uploads this file last of all three, so its presence means both optimization files for that date are complete (and, since v10, that the forecasts were uploaded just before).
 2. `TIME_SERIES_SPACE_NAME` contains `YYYY-MM-DD/all_forecasts.csv`.
 
-Dates present in only one bucket (for example, only one of the two backend scripts was run) are **not** available and must not be offered to users. To find the dates, list each bucket with S3 `ListObjectsV2` using `Delimiter="/"`: the date folders come back as `CommonPrefixes` (for example `2026-10-09/`). Follow `ContinuationToken` pagination, since a listing returns at most 1,000 entries. Then confirm the marker object for each date (a `HeadObject`, or a listing with `Prefix="YYYY-MM-DD/"`).
+Since v10, one backend run computes everything first and then uploads all three files in the order `all_forecasts.csv`, `portfolio_optimization_plot_data.h5`, `optimization_metadata.yml`; if any computation fails, nothing is uploaded. Readers must still check both buckets, because dates written before v10 came from two separate scripts. Dates present in only one bucket (for example, only one of the two pre-v10 scripts was run) are **not** available and must not be offered to users. To find the dates, list each bucket with S3 `ListObjectsV2` using `Delimiter="/"`: the date folders come back as `CommonPrefixes` (for example `2026-10-09/`). Follow `ContinuationToken` pagination, since a listing returns at most 1,000 entries. Then confirm the marker object for each date (a `HeadObject`, or a listing with `Prefix="YYYY-MM-DD/"`).
 
 General behavior of every file:
 
 - **History.** Each date folder is a snapshot of one run. Comparing dates is valid (same keys, formats, and units within a contract version), but a date folder written under an older contract version keeps the format of that version.
-- **Non-atomic.** The two optimization files are uploaded one after the other (`.h5` first, then `.yml`). The completion marker rule above prevents reading a half-uploaded date. During a same-day re-run, a date's two optimization files can briefly come from different runs.
+- **Non-atomic.** The three files are uploaded one after the other (forecasts, `.h5`, then `.yml`). The completion marker rule above prevents reading a half-uploaded date. During a same-day re-run, a date's files can briefly come from different runs.
 - **Manual cadence.** The backend is run by hand, so there is no guaranteed update schedule. The frontend should display the data dates (see below) so a stale dataset is visible, rather than assuming data is current.
 - **Content type and ACLs.** The backend sets none. Do not rely on the `Content-Type` of an object; decide how to parse from the key name.
 - **Not investment advice.** All values are backtested or modeled outputs of a hobby project. Any user-facing text must say so.
@@ -288,6 +288,7 @@ Checked against real backend output (2026-10-11):
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 10 | 2026-10-12 | Non-breaking; no change to keys, file names, formats, columns, shapes, or units. The backend now has a single entry point that produces all three files in one run: one price download, ARIMA trained on the last 40 trading sessions of that data (the same window as before), then the optimization. Uploads happen only after every computation succeeds, in the order `all_forecasts.csv`, `.h5`, `optimization_metadata.yml`, so the metadata file now marks a complete date across both buckets. The availability rule (both buckets) is unchanged because earlier dates came from two separate scripts. |
 | 9 | 2026-10-12 | **Breaking (keys).** Every file moves under a date prefix `YYYY-MM-DD/` (the data as-of date = last NYSE trading day in the run's data), keeping one folder per run instead of overwriting. File names, formats, columns, shapes, and units are unchanged. Root-level keys are **no longer written** (clean break, no dual-write); stale root objects remain until removed by hand. Defined date availability as the intersection of both buckets, with `optimization_metadata.yml` as the optimization completion marker. Frontend must: list date prefixes in both buckets (`ListObjectsV2`, `Delimiter="/"`, paginated), keep only dates complete in both, show them in a dropdown newest-first with the newest selected by default, load all files from the selected date's folder, and ignore root-level objects. Ship the frontend change with the first prefixed upload to production. |
 | 8 | 2026-10-12 | Calendar fix, non-breaking (no change to keys, columns, shapes, or units): business days now follow the NYSE trading calendar instead of the US federal holiday calendar. Effects: `pred_date` and the ARIMA training windows skip NYSE closures (e.g. Good Friday) and include federal-only holidays (e.g. Columbus Day, Veterans Day), and downloaded data now ends on the last NYSE session instead of possibly omitting one. |
 | 7 | 2026-10-11 | Documentation only: recorded verification of the `.h5` point values and tangency line against real output. No change to keys, shapes, units, or meaning. |
