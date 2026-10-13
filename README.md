@@ -3,7 +3,7 @@ Backend code the fuzzy-system-finance app. Contains code to model stock prices w
 
 ## Installation
 
-This project uses [uv](https://docs.astral.sh/uv/) for Python versions, virtual environments, and dependencies. Install `uv` first (for example, `brew install uv` on macOS). Dependencies are declared in `pyproject.toml`, and `uv.lock` pins the exact versions that were resolved. The project requires Python 3.13 (`.python-version`), which `uv` downloads automatically if it is not already installed.
+This project uses [uv](https://docs.astral.sh/uv/) for Python versions, virtual environments, and dependencies. Install `uv` first (for example, `brew install uv` on macOS). Dependencies are declared in `pyproject.toml`, and `uv.lock` pins the exact versions that were resolved. The project requires Python 3.13 and pins 3.13.5 in `.python-version`, which `uv` downloads automatically if it is not already installed.
 
 ### Development Dependencies
 
@@ -21,13 +21,23 @@ To install only the production dependencies:
 uv sync --no-dev
 ```
 
-### Running scripts
+### Running the backend
 
-Run scripts through `uv` so they use the project environment; there is no need to activate the virtual environment manually:
+One command runs everything: it downloads prices (or reuses today's cached download), fits the walk-forward ARIMA forecasts (or reuses the cached forecasts for the data's as-of date), optimizes the portfolio, and uploads all results for the frontend. Run it through `uv` so it uses the project environment; there is no need to activate the virtual environment manually:
 
 ```
-uv run python scripts/portfolio_optimization.py
+uv run python scripts/run_optimization_and_time_series.py
 ```
+
+Options:
+
+| Flag | Effect |
+| --- | --- |
+| `--no-upload` | Write the `output/` files but upload nothing. Use this to check a run without touching any bucket. |
+| `--retrain-arima` | Retrain the ARIMA models even if forecasts for the as-of date are cached. |
+| `--refresh-data` | Download prices again even if today's download is cached. |
+
+Nothing is uploaded unless every step succeeds. If a later step fails, the ARIMA forecasts already written to `output/` are reused on the next run.
 
 Always run scripts from the repository root, because the scripts read and write `input/` and `output/` relative to the current working directory.
 
@@ -55,9 +65,11 @@ Here are the keys the scripts need to function:
 
 2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT`: Region, read/write/delete key, key id, and endpoint of the DigitalOcean S3/Spaces bucket. Set as appropriate for development or production environments. Obtain values from DigitalOcean or AWS environments.
 
-3. `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`: Space names for portfolio and ARIMA time series data.
+3. `FSF_FRONT_END_BUCKET_NAME`: Name of the one DigitalOcean Space (S3 bucket) that holds all frontend data. `FSF_FRONT_END_BUCKET_ENDPOINT` must be the region-only endpoint (e.g. `https://nyc3.digitaloceanspaces.com`) without the Space name; the uploader refuses to run otherwise.
 
-Items 2 and 3 connect the backend to the front end.
+4. `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER` and `FSF_FRONT_END_TIME_SERIES_FOLDER`: names of the two top-level folders inside that Space, holding the portfolio optimization and ARIMA time series data. Dev and production share the Space and use different folder names. Files are uploaded to `<folder>/YYYY-MM-DD/<file>`; see `INTERFACE_CONTRACT.md` for the full key layout.
+
+Items 2 through 4 connect the backend to the front end.
 
 ## Project structure
 
@@ -68,14 +80,14 @@ fuzzy-system-research/
 ├── pyproject.toml                # Dependencies, Python version, build config
 ├── uv.lock                       # Exact resolved dependency versions
 ├── scripts/                      # RUN these: entry points that wire the library together
-│   ├── portfolio_optimization.py
-│   ├── ticker_predict_upload.py
+│   ├── run_optimization_and_time_series.py
 │   └── ticker_download_to_csv.py
 ├── src/fuzzy_system_research/    # IMPORT these: reusable library code, no entry points
-│   ├── data/                     # Market data download, caching, and date logic
-│   ├── optimization/             # Portfolio optimization math and plotting
+│   ├── pipeline.py               # One full run: prices → ARIMA → optimization → uploads
+│   ├── data/                     # Market data download, caching, price reshaping, and date logic
+│   ├── optimization/             # Portfolio optimization math
 │   ├── forecasting/              # ARIMA models and the walk-forward training workflow
-│   └── storage/                  # S3/Spaces uploads
+│   └── storage/                  # Output/bucket key layout and S3/Spaces uploads
 ├── tests/                        # Tests (use mocks and temporary directories only)
 ├── input/                        # Cached market data (not committed)
 └── output/                       # Results of runs (not committed)
@@ -89,11 +101,19 @@ The following folders should be created before running the scripts in the sectio
 
 1. `input/`: Holds risk free rate data.
 
-2. `input/annual/`: Holds annual ticker data.
+2. `input/annual/`: Holds the cached price downloads (one year of trading days, one file per run date). Both the optimization and the ARIMA forecasts use this data; ARIMA uses its last 40 trading days.
 
-3. `input/monthly/`: Holds monthly ticker data.
+3. `output/`: Holds the results of runs, in one folder per data as-of date (the last NYSE trading day in the run's data). Subfolders are created automatically. The layout mirrors the frontend buckets, where each file's key is its path below `output/<kind>/`:
 
-4. `output/`: Holds output data.
+   ```
+   output/portfolio_optimization/YYYY-MM-DD/optimization_metadata.yml
+   output/portfolio_optimization/YYYY-MM-DD/portfolio_optimization_plot_data.h5
+   output/time_series/YYYY-MM-DD/all_forecasts.csv
+   ```
+
+   Re-running for the same date overwrites that date's files, except that ARIMA training is skipped when that date's `all_forecasts.csv` already exists (unless `--retrain-arima` is given). See `INTERFACE_CONTRACT.md` for the bucket layout the frontend reads.
+
+An older `input/monthly/` folder, if present, is no longer used and can be deleted.
 
 ### Scripts
 
@@ -101,8 +121,7 @@ Run these directly with `uv run python scripts/<filename>` from the repository r
 
 | Filename                                | Purpose                                                                                                                                                                                                                   | Uploads to front end? |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `scripts/portfolio_optimization.py`     | Obtain adjusted close price data for a portfolio of stocks and compute max Sharpe ratio portfolio weights, min variance portfolio weights, efficient frontier, and Monte Carlo simulation of portfolio risks and returns. | Yes                   |
-| `scripts/ticker_predict_upload.py`      | Obtain 2 months of data and fit a month's worth of ARIMA models on the adjusted close prices.                                                                                                                             | Yes                   |
+| `scripts/run_optimization_and_time_series.py` | The whole backend in one run: obtain adjusted close prices, fit walk-forward ARIMA forecasts, compute max Sharpe ratio and min variance portfolios, the efficient frontier, and a Monte Carlo simulation, then upload. See "Running the backend" for flags. | Yes |
 | `scripts/ticker_download_to_csv.py`     | Download a supported symbol from Massive.com and put the results into a `.csv` file. Usage: `uv run python scripts/ticker_download_to_csv.py <ticker> <date_from> <date_to> <filename>`.                                    | No                    |
 
 ### Library modules
@@ -112,8 +131,12 @@ These modules are imported by the scripts and are not meant to be executed direc
 | Module (under `src/fuzzy_system_research/`) | Purpose                                                                                                                                                 | Uploads to front end?                |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `data/ticker_download_manager.py`           | Downloads new data from Massive.com or retrieves old data from the cache.                                                                               | No                                   |
-| `data/date_manager.py`                      | Date and business day calculations.                                                                                                                     | No                                   |
-| `optimization/portfolio.py`                 | Monte Carlo portfolio simulation, minimum variance and max Sharpe ratio optimization, efficient frontier, risk-free rate retrieval, and plotting.       | No                                   |
+| `data/date_manager.py`                      | Date and business day calculations on the NYSE trading calendar (via `exchange_calendars`).                                                             | No                                   |
+| `data/prices.py`                            | Pivots downloaded prices to a wide table and selects the most recent trading sessions.                                                                 | No                                   |
+| `optimization/portfolio.py`                 | Monte Carlo portfolio simulation, minimum variance and max Sharpe ratio optimization, efficient frontier, annualization, and risk-free rate retrieval.  | No                                   |
+| `optimization/workflow.py`                  | One full optimization run from prices to annualized results, plus the `.h5` and `.yml` writers.                                                        | No                                   |
 | `forecasting/arima_models.py`               | Trains ARIMA models on price data.                                                                                                                      | No                                   |
-| `forecasting/ticker_predict.py`             | `TickerPredictUpload`: walk-forward ARIMA training over rolling windows, plus the upload of the forecasts.                                              | Yes                                  |
-| `storage/s3_uploader.py`                    | Uploads files to S3/Spaces buckets on AWS/DigitalOcean.                                                                                                 | Yes (other modules use it to upload) |
+| `forecasting/ticker_predict.py`             | `ArimaWalkForward`: walk-forward ARIMA training over rolling windows; `load_or_train_forecasts` caches the result.                                      | No                                   |
+| `pipeline.py`                               | Orchestrates one backend run and its uploads (`csv`, then `.h5`, then `.yml` last).                                                                    | Yes                                  |
+| `storage/layout.py`                         | Builds the dated `output/` paths and matching bucket keys (`YYYY-MM-DD/<file>`).                                                                        | No                                   |
+| `storage/s3_uploader.py`                    | Uploads files to the one DigitalOcean Space (`FSF_FRONT_END_BUCKET_NAME`) by full object key; rejects non-region-only endpoints.                       | Yes (other modules use it to upload) |

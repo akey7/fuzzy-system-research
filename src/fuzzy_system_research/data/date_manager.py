@@ -1,23 +1,48 @@
 from datetime import datetime
+from functools import lru_cache
+import exchange_calendars as xcals
 import pandas as pd
 from pandas.tseries.offsets import CustomBusinessDay
-from pandas.tseries.holiday import USFederalHolidayCalendar
+
+# ISO 10383 market identifier code of the New York Stock Exchange.
+NYSE_CALENDAR_CODE = "XNYS"
+
+
+@lru_cache(maxsize=1)
+def nyse_holidays() -> pd.DatetimeIndex:
+    """
+    Weekdays on which the NYSE is closed (full-day holidays and one-off
+    closures), from the exchange_calendars NYSE calendar.
+
+    Computed as all weekdays between the calendar's first and last session
+    minus the actual trading sessions. The calendar covers roughly the past
+    20 years through about one year ahead; outside that range no holidays
+    are known and every weekday is treated as a trading day. Early-close
+    (half) days are trading sessions and are not included. The result is
+    cached because building the calendar is relatively slow.
+
+    Returns
+    -------
+    pd.DatetimeIndex
+        Tz-naive, midnight-normalized dates of NYSE weekday closures.
+    """
+    cal = xcals.get_calendar(NYSE_CALENDAR_CODE)
+    weekdays = pd.bdate_range(cal.first_session, cal.last_session)
+    return weekdays.difference(cal.sessions)
 
 
 class DateManager:
     """
-    Class to manage ranges of bsuiness days according to U.S. Federal
-    Holiday calendar.
+    Class to manage ranges of business days according to the New York
+    Stock Exchange (NYSE) trading calendar.
     """
 
     def __init__(self):
         """
         Instantiates the class and sets up the calendar of business days
-        to use.
+        to use: weekdays excluding NYSE holidays (see nyse_holidays()).
         """
-        cal = USFederalHolidayCalendar()
-        holidays = cal.holidays()
-        self.cbd = CustomBusinessDay(holidays=holidays)
+        self.cbd = CustomBusinessDay(holidays=nyse_holidays())
 
     def get_today_date(self):
         """
@@ -29,7 +54,7 @@ class DateManager:
     def past_business_day(self, reference_date, business_days_past):
         """
         Calculates the business date a specified number of business days in the past,
-        skipping US federal holidays.
+        skipping NYSE holidays.
 
         Parameters
         ----------
@@ -49,7 +74,7 @@ class DateManager:
     def future_business_day(self, reference_date, business_days_ahead):
         """
         Calculates the business date a specified number of business days in the future,
-        skipping US federal holidays.
+        skipping NYSE holidays.
 
         Parameters
         ----------
@@ -69,7 +94,7 @@ class DateManager:
     def create_business_day_range(self, reference_date, num_days):
         """
         Creates a range of business days starting from a given date,
-        skipping US federal holidays.
+        skipping NYSE holidays.
 
         Parameters
         ----------

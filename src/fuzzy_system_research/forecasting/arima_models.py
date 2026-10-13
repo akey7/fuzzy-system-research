@@ -2,12 +2,12 @@ import warnings
 from dask.distributed import Client, as_completed
 from tqdm import tqdm
 import pandas as pd
-from pandas.tseries.holiday import USFederalHolidayCalendar
 import numpy as np
 from numpy.linalg import LinAlgError
 import statsmodels.tsa.api as tsa
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from sklearn.metrics import mean_squared_error
+from fuzzy_system_research.data.date_manager import DateManager
 
 
 class ArimaModels:
@@ -25,9 +25,10 @@ class ArimaModels:
         self.train_result = None
         self.final_model = None
 
-    def next_business_day_skip_holidays(self, date):
+    def next_business_day_skip_holidays(self, date: pd.Timestamp) -> pd.Timestamp:
         """
-        Finds the next business day, skipping US federal holidays.
+        Finds the next NYSE trading day, skipping weekends and NYSE holidays.
+        The time of day of the given date is preserved.
 
         Parameters
         ----------
@@ -37,18 +38,9 @@ class ArimaModels:
         Returns
         -------
         pd.Timestamp
-            The next business day, skipping holidays.
+            The next NYSE trading day after the given date.
         """
-
-        cal = USFederalHolidayCalendar()
-        holidays = cal.holidays(start=date, end=date + pd.Timedelta(days=365))
-
-        next_day = date + pd.Timedelta(days=1)
-        while True:
-            if next_day.weekday() >= 5 or next_day in holidays:
-                next_day += pd.Timedelta(days=1)
-            else:
-                return next_day
+        return DateManager().future_business_day(date, 1)
 
     def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
         """

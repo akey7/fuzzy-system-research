@@ -1,19 +1,25 @@
 import os
+from typing import Protocol
 import pandas as pd
 from fuzzy_system_research.data.date_manager import DateManager
-from fuzzy_system_research.data.ticker_download_manager import TickerDownloadManager
 from fuzzy_system_research.forecasting.arima_models import ArimaModels
-from fuzzy_system_research.storage.s3_uploader import S3Uploader
+from fuzzy_system_research.storage.layout import ensure_parent_dir
+
+# Most recent trading sessions of price data the walk-forward ARIMA uses.
+ARIMA_WINDOW_SESSIONS = 40
 
 
-class TickerPredictUpload:
+class ArimaWalkForward:
+    """
+    Walk-forward, one-step-ahead ARIMA forecasts of adjusted close prices
+    over sliding windows of trading days. Does no downloading or uploading.
+    """
+
     def __init__(self):
         """
-        Instantiate the with the proper DateManager and download folder.
+        Instantiate with the DateManager used to build the training windows.
         """
-        monthly_download_folder = os.path.join("input", "monthly")
         self.dm = DateManager()
-        self.tdm = TickerDownloadManager(monthly_download_folder)
 
     def training_window_start_end(self, start_timestamp, end_timestamp, num_days=20):
         """
@@ -51,32 +57,6 @@ class TickerPredictUpload:
         # for timestamp_range in timestamp_ranges:
         #     print(timestamp_range)
         return timestamp_ranges
-
-    def pivot_ticker_close_wide(self, long_df):
-        """
-        Pivots the adjusted close values retrieved by get_tickers()
-        to a wide format suitable for modeling.
-
-        Parameters
-        ----------
-        long_df : pd.DataFrame
-            Long DataFrame of ticker data.
-
-        Returns
-        -------
-        pd.DataFrame
-            Wide dataframe with adjusted close prices of tickers in the columns
-            and a pd.DatetimeIndex suitable for indexing into ranges of dates.
-        """
-        wide_df = long_df.reset_index().pivot(
-            index="datetime", columns="ticker", values="close"
-        )
-        wide_df.index = pd.DatetimeIndex(wide_df.index)
-        wide_df.index = pd.DatetimeIndex(
-            [dt.replace(hour=17, minute=0, second=0) for dt in wide_df.index]
-        )
-        wide_df.sort_index(inplace=True)
-        return wide_df
 
     def train_arima_models(
         self,
@@ -149,25 +129,56 @@ class TickerPredictUpload:
         all_forecast_df = pd.concat(all_forecast_dfs, axis=1).sort_index()
         return all_forecast_df
 
-    def run(self):
-        """
-        Download or read cached ticker data from Massive, process it, and
-        upload it to DigitalOcean for transfer to the front end. Manage caches of
-        stock tickers (so that the Massive API is not accessed unnecessarily)
-        and predictions (so that a long running process is not run
-        unecessarily).
-        """
-        long_df, start_date, end_date = self.tdm.get_latest_tickers(use_cache=True)
-        print(f"{start_date} to {end_date}")
-        wide_df = self.pivot_ticker_close_wide(long_df)
-        all_forecasts_df_local_filename = os.path.join(
-            "output", f"All Forecasts {self.dm.get_today_date()}.csv"
-        )
-        if not os.path.exists(all_forecasts_df_local_filename):
-            arima_forecasts_df = self.train_arima_models(wide_df)
-            arima_forecasts_df.to_csv(all_forecasts_df_local_filename, index=True)
-        s3u = S3Uploader()
-        time_series_space_name = os.getenv("TIME_SERIES_SPACE_NAME")
-        s3u.upload_file(
-            all_forecasts_df_local_filename, time_series_space_name, "all_forecasts.csv"
-        )
+
+class ForecastTrainer(Protocol):
+    """
+    Anything that can produce the forecasts DataFrame, e.g. ArimaWalkForward
+    (or a test double).
+    """
+
+    def train_arima_models(self, df: pd.DataFrame) -> pd.DataFrame: ...
+
+
+def load_or_train_forecasts(
+    window_df: pd.DataFrame,
+    path: str,
+    retrain: bool = False,
+    trainer: ForecastTrainer | None = None,
+) -> bool:
+    """
+    Make sure the forecasts CSV for a run exists at path, training ARIMA
+    models only when needed. The CSV at path is the cache: if it exists and
+    retrain is False, nothing is trained and the file is left as is.
+    Otherwise the models are trained on window_df and the CSV is (over)written
+    in the format of all_forecasts.csv in INTERFACE_CONTRACT.md.
+
+    Parameters
+    ----------
+    window_df : pd.DataFrame
+        Wide adjusted close prices to train on, normally the last
+        ARIMA_WINDOW_SESSIONS trading sessions.
+
+    path : str
+        Local path of the forecasts CSV. Missing folders are created.
+
+    retrain : bool, optional
+        If True, train and overwrite the CSV even if it exists. Defaults to
+        False.
+
+    trainer : ForecastTrainer, optional
+        Object that trains the models. Defaults to a new ArimaWalkForward.
+
+    Returns
+    -------
+    bool
+        True if models were trained and the CSV written, False if the cached
+        CSV was reused.
+    """
+    if os.path.exists(path) and not retrain:
+        print(f"Using cached forecasts {path}")
+        return False
+    trainer = trainer if trainer is not None else ArimaWalkForward()
+    forecasts_df = trainer.train_arima_models(window_df)
+    forecasts_df.to_csv(ensure_parent_dir(path), index=True)
+    print(f"Saved {path}")
+    return True

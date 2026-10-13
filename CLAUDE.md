@@ -43,22 +43,25 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 
 | File | Role | Run directly? | Uploads? |
 | --- | --- | --- | --- |
-| `scripts/portfolio_optimization.py` | `main()`: fetch adjusted closes; max-Sharpe and min-variance weights, efficient frontier, Monte Carlo; write `output/` files and upload | Yes | Yes |
-| `scripts/ticker_predict_upload.py` | Run `TickerPredictUpload` (fit a month's worth of ARIMA models) | Yes | Yes |
+| `scripts/run_optimization_and_time_series.py` | The single backend entry point: parses `--no-upload`, `--retrain-arima`, `--refresh-data`, loads `.env`, calls `pipeline.run_pipeline()` | Yes | Yes |
 | `scripts/ticker_download_to_csv.py` | Download one symbol from Massive.com to CSV | Yes | No |
 | `src/fuzzy_system_research/data/ticker_download_manager.py` | Download new data or retrieve cached data | No | No |
-| `src/fuzzy_system_research/data/date_manager.py` | Date and business-day calculations | No | No |
-| `src/fuzzy_system_research/optimization/portfolio.py` | Simulation, min-variance, efficient frontier, risk-free rate, max-Sharpe, plotting | No | No |
+| `src/fuzzy_system_research/data/date_manager.py` | Date and business-day calculations (NYSE calendar via `exchange_calendars`) | No | No |
+| `src/fuzzy_system_research/data/prices.py` | Pure helpers: pivot long prices to wide; last N trading sessions | No | No |
+| `src/fuzzy_system_research/optimization/portfolio.py` | Simulation, min-variance, efficient frontier, risk-free rate, max-Sharpe, annualization helpers | No | No |
+| `src/fuzzy_system_research/optimization/workflow.py` | `run_portfolio_optimization()` → `OptimizationResult` (annualized); `.h5`/`.yml` writers | No | No |
 | `src/fuzzy_system_research/forecasting/arima_models.py` | ARIMA training on price data | No | No |
-| `src/fuzzy_system_research/forecasting/ticker_predict.py` | `TickerPredictUpload`: walk-forward ARIMA workflow and upload | No | Yes |
+| `src/fuzzy_system_research/forecasting/ticker_predict.py` | `ArimaWalkForward` (walk-forward ARIMA) and `load_or_train_forecasts()` (per-date cache) | No | No |
+| `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (252 sessions) → ARIMA on the last 40 → optimization → uploads (csv, h5, yml last) only if all succeed; dependencies injectable for tests | No | Yes |
+| `src/fuzzy_system_research/storage/layout.py` | Pure helpers for dated `output/` paths and bucket keys; the single source of truth for both layouts | No | No |
 | `src/fuzzy_system_research/storage/s3_uploader.py` | S3/Spaces upload helper | No | Used by others |
 
-`tests/` is reserved for tests (not yet populated).
+`tests/` holds pytest tests (in-memory only; no network, S3, `input/`, or `output/`). The human runs them with `uv run pytest` from the repo root.
 
 Data directories (contents are **not** committed to git; the human creates them and populates them by running the scripts):
 
-- `input/` — risk-free rate data; `input/annual/` — annual ticker data; `input/monthly/` — monthly ticker data
-- `output/` — results of runs
+- `input/` — risk-free rate data; `input/annual/` — cached price downloads used by both ARIMA and optimization; `input/monthly/` — legacy, no longer read
+- `output/` — results of runs, mirroring the buckets: `output/portfolio_optimization/YYYY-MM-DD/` and `output/time_series/YYYY-MM-DD/` (data as-of date). Build these paths and bucket keys only through `storage/layout.py`.
 
 Because the human can't have Claude run anything, **any future reorganization is a pure code/path refactor.** When doing it:
 
@@ -70,15 +73,16 @@ Because the human can't have Claude run anything, **any future reorganization is
 
 ## Environment and configuration
 
-- Python 3.13, managed with `uv` (project-local `.venv`; version pinned in `.python-version`).
+- Python 3.13 (`requires-python = ">=3.13"`), pinned to 3.13.5 in `.python-version`, managed with `uv` (project-local `.venv`).
 - Dependencies: `pyproject.toml` (`dependencies` for production, `[dependency-groups] dev` for development), locked in `uv.lock`. Claude may edit `pyproject.toml`, but must not run `uv` or install anything, and must not hand-edit `uv.lock`. Tell the human which commands to run (`uv lock`, `uv sync`).
 - Never hard-code secrets, bucket names, or endpoints. Everything comes from `.env` via environment variables.
 
 `.env` variable names (names only; never values):
 
 - `MASSIVE_API_KEY` — Massive.com market data API key
-- `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT` — DigitalOcean Spaces region, read/write/delete key, key id, endpoint
-- `PORTFOLIO_OPTIMIZATION_SPACE_NAME`, `TIME_SERIES_SPACE_NAME` — Space names for optimization and ARIMA time series data
+- `FSF_FRONT_END_BUCKET_NAME` — name of the one DigitalOcean Space (S3 bucket); `S3Uploader` passes it as `Bucket` and puts the folder in the key
+- `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT` (region-only, e.g. `https://nyc3.digitaloceanspaces.com`) — DigitalOcean Spaces region, read/write/delete key, key id, endpoint
+- `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, `FSF_FRONT_END_TIME_SERIES_FOLDER` — names of the two **top-level folders (key prefixes) inside the one Space** (see `INTERFACE_CONTRACT.md`, "Where the data lives"). Dev and production share the Space and differ only in these folder names. Formerly `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`; the old names are no longer read.
 
 The bucket variables point the backend at either dev or production. **Be careful with anything that could upload.** A change to upload logic can overwrite what the live frontend displays. Flag any change that alters what gets uploaded, where, or under what key.
 
@@ -111,6 +115,10 @@ This is the area where wrong answers look plausible, so be explicit and conserva
 - Do not present backtested or modeled results as investment advice. Keep that framing in any user-facing text you draft.
 
 ### Changing the frontend contract
+
+@INTERFACE_CONTRACT.md
+
+The file above is the authoritative spec of what this backend uploads and the frontend reads. This repo holds the **source of truth**; the frontend repo has an identical mirror. Never change the contract, or any code that alters what it describes, without also updating `INTERFACE_CONTRACT.md` (bump its version, add a changelog entry) and telling the human to copy it unchanged into the frontend repo. Never edit it in only one repo.
 
 The frontend reads what this backend uploads. Before changing any of the following, pause and describe the change and its frontend impact to the human:
 
