@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 13 |
-| **Last updated** | 2026-10-12 |
+| **Contract version** | 14 |
+| **Last updated** | 2026-10-14 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
 This file is stored **byte-for-byte identically** in both repos. It describes the files the backend uploads to one S3-compatible bucket (a DigitalOcean Space, accessed with `boto3`) and the frontend reads. Treat it as a public API.
@@ -165,9 +165,9 @@ Things to notice in the example:
 | `date_updated.date_from` | string `YYYY-MM-DD` | First trading day of price data used in the optimization. |
 | `date_updated.date_to` | string `YYYY-MM-DD` | Last trading day of price data used. **This is the "data as of" date to show users.** |
 | `tickers` | list of string | Tickers in the optimized portfolio. Order is not significant. |
-| `risk_free_rate.risk_free_rate` | float | Latest 3-month U.S. Treasury bill rate (FRED series `DTB3`), **annualized, in percent** (4.39 means 4.39 % per year). |
+| `risk_free_rate.risk_free_rate` | float | Most recent **published** 3-month U.S. Treasury bill rate (FRED series `DTB3`), **annualized, in percent** (4.39 means 4.39 % per year). Days with no published value (bond-market holidays) are skipped, so this is never `NaN`; since v14, a run with no valid rate fails instead of uploading. |
 | `risk_free_rate.daily_risk_free_rate` | float | `risk_free_rate / 252`. **Percent per day**, the rate the backend used internally for its daily optimization. The only daily quantity in the uploaded files; prefer `risk_free_rate` for display. |
-| `risk_free_rate.risk_free_rate_date` | string | Observation date of the rate, formatted as a timestamp string such as `2026-10-08 00:00:00`. Parse the first 10 characters as a date. |
+| `risk_free_rate.risk_free_rate_date` | string | Observation date of the rate (the last day with a published value, which can be earlier than the last FRED row), formatted as a timestamp string such as `2026-10-08 00:00:00`. Parse the first 10 characters as a date. |
 | `optimum_portfolio.weights` | map ticker → float | Weights of the maximum Sharpe ratio portfolio, **in percent** (a weight of 22.4 means 22.4 %). Contains one key per ticker. |
 | `optimum_portfolio.annualized_return` | float | Expected return of the max Sharpe ratio portfolio, **annualized arithmetically, in percent**: mean daily return (%) × 252. *Changed in v4; it was compounded before.* |
 | `optimum_portfolio.risk` | float | Standard deviation of that portfolio's returns, **annualized** (daily σ × √252), **in percent**. |
@@ -325,6 +325,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 14 | 2026-10-14 | Bug fix, non-breaking (no change to keys, formats, or units). FRED leaves `DTB3` empty on bond-market holidays (e.g. Columbus Day); the backend used the latest row even when it was empty, which could make `risk_free_rate`, `daily_risk_free_rate`, `sharpe_ratio`, and the tangency line `NaN`. It now uses the most recent non-missing value, so `risk_free_rate_date` can be earlier than the last FRED row, and a run with no valid rate fails before uploading. Clarified the two `risk_free_rate` field descriptions. Frontend: no change required. |
 | 13 | 2026-10-12 | **Configuration rename; no objects move and key strings are unchanged.** The environment variables naming the two top-level folders are renamed so their names say what they hold: `PORTFOLIO_OPTIMIZATION_SPACE_NAME` is now `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, and `TIME_SERIES_SPACE_NAME` is now `FSF_FRONT_END_TIME_SERIES_FOLDER`. Values are unchanged. No fallback: the backend reads only the new names, and the human has already renamed them in the backend `.env` for dev and production. Documented that dev and production share the one Space and differ only in folder names, and listed `FSF_FRONT_END_BUCKET_NAME` with the folder variables. Frontend must: read the new names, rename its Hugging Face secrets and any local `.env` (same values), and drop the old names. |
 | 12 | 2026-10-12 | Documentation only; no change to keys, formats, or reader behavior. The v11 text was amended in place after it was first written, so a copy taken earlier may differ. This version is the reconciled text for both repos. Amendments since the first v11 text: the "Connecting" section states that the backend also reads `FSF_FRONT_END_BUCKET_NAME` and uploads with `Bucket=<space>`, `Key="<folder>/YYYY-MM-DD/<file>"`; "Verification status" records the programmatic listing of the real keys, the deleted stale object, and a second listing after the backend change; the v11 changelog entry notes the backend change. Frontend: replace its copy with this file. |
 | 11 | 2026-10-12 | **Documentation correction; no objects move and key strings are unchanged.** Earlier versions described `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME` as bucket names. They are top-level folder names inside **one** Space (bucket), so the full keys are `<folder>/YYYY-MM-DD/<file>`. Uploads landed correctly only because boto3, given an endpoint containing the Space name, sends path-style requests. Rewrote "Where the data lives", "The date prefix", "Which dates are available", the per-file Folder/Key lines, and reader requirement 7; added "Connecting". Frontend must: add `FSF_FRONT_END_BUCKET_NAME` (the Space name), use the region-only endpoint `https://<region>.digitaloceanspaces.com`, list each folder with `ListObjectsV2(Bucket=<space>, Prefix="<folder>/")` with pagination, strip the folder prefix before matching dates, and read objects with `Bucket=<space>`, `Key="<folder>/YYYY-MM-DD/<file>"`. The backend was changed the same way (it reads `FSF_FRONT_END_BUCKET_NAME` and passes the folder in the key), which produces byte-identical object keys. |
