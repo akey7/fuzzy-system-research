@@ -323,17 +323,67 @@ def calc_efficient_frontier(
     return optimized_risks, target_returns
 
 
-def get_risk_free_rate(dm):
+def latest_risk_free_rate(tb3m_df) -> dict:
     """
-    Finds the risk-free rates of the 3-month U.S. treasury bill on the business
-    day closest to the current day. Caches the downloaded rates so that repeated
-    calls to this function only retrieve the data when necessary.
+    Pick the most recent valid 3-month T-bill rate from FRED DTB3 data and
+    convert it to the daily rate used by the optimizer. Pure function.
+
+    FRED leaves DTB3 empty on bond-market holidays (e.g. Columbus Day), which
+    pandas reads as NaN; those rows are skipped so a holiday never turns the
+    risk-free rate (and with it every Sharpe ratio) into NaN.
+
+    Parameters
+    ----------
+    tb3m_df : pd.DataFrame
+        FRED DTB3 data: a DatetimeIndex and a "DTB3" column holding the
+        annualized rate in percent. Any row order.
+
+    Returns
+    -------
+    dict[str, float | str]
+        risk_free_rate (annualized, percent), daily_risk_free_rate
+        (risk_free_rate / TRADING_DAYS_PER_YEAR, percent per day), and
+        risk_free_rate_date (the observation date as a timestamp string).
+
+    Raises
+    ------
+    ValueError
+        If there is no non-missing DTB3 value.
+    """
+    valid = tb3m_df.dropna(subset=["DTB3"]).sort_index(ascending=False)
+    if valid.empty:
+        raise ValueError("No non-missing DTB3 (3-month T-bill) rate in the data.")
+    risk_free_rate = float(valid.iloc[0]["DTB3"])
+    return {
+        "risk_free_rate": risk_free_rate,
+        "daily_risk_free_rate": risk_free_rate / TRADING_DAYS_PER_YEAR,
+        "risk_free_rate_date": str(valid.index[0]),
+    }
+
+
+def get_risk_free_rate(dm) -> dict:
+    """
+    Finds the risk-free rates of the 3-month U.S. treasury bill on the most
+    recent day with a published rate (see latest_risk_free_rate()). Caches
+    the result in input/Risk Free Rate YYYY-MM-DD.json (today's date) so that
+    repeated calls on the same day do not download again. A cached file whose
+    daily rate is missing or not finite is ignored and replaced.
+
+    Parameters
+    ----------
+    dm : DateManager
+        Supplies today's date for the cache file name.
 
     Returns
     -------
     dict[str, float]
         Returns the risk free annual rate, the risk free daily rate, and the date
         of those rates.
+
+    Raises
+    ------
+    ValueError
+        If FRED returns no valid DTB3 rate for the past year.
     """
     today_date = dm.get_today_date()
     risk_free_rate_filename = os.path.join("input", f"Risk Free Rate {today_date}.json")
@@ -341,26 +391,19 @@ def get_risk_free_rate(dm):
         print("Reading risk-free rate cache...")
         with open(risk_free_rate_filename, "r", encoding="utf-8") as f:
             risk_free_rate_data = json.load(f)
-            print(risk_free_rate_data)
-            daily_risk_free_rate = risk_free_rate_data["daily_risk_free_rate"]
-    else:
-        end_date = datetime.datetime.now()
-        start_date = end_date - relativedelta(years=1)
-        print(start_date, end_date)
-        tb3m_df = web.DataReader("DTB3", "fred", start_date, end_date).sort_values(
-            "DATE", ascending=False
-        )
-        risk_free_rate = float(tb3m_df.iloc[0]["DTB3"])
-        daily_risk_free_rate = risk_free_rate / 252
-        risk_free_rate_date = str(tb3m_df.index[0])
-        print(daily_risk_free_rate)
-        risk_free_rate_data = {
-            "risk_free_rate": risk_free_rate,
-            "daily_risk_free_rate": daily_risk_free_rate,
-            "risk_free_rate_date": risk_free_rate_date,
-        }
-        with open(risk_free_rate_filename, "w", encoding="utf-8") as f:
-            json.dump(risk_free_rate_data, f, indent=4)
+        print(risk_free_rate_data)
+        daily_rate = risk_free_rate_data.get("daily_risk_free_rate")
+        if isinstance(daily_rate, (int, float)) and np.isfinite(daily_rate):
+            return risk_free_rate_data
+        print("Cached risk-free rate is invalid; downloading again...")
+    end_date = datetime.datetime.now()
+    start_date = end_date - relativedelta(years=1)
+    print(start_date, end_date)
+    tb3m_df = web.DataReader("DTB3", "fred", start_date, end_date)
+    risk_free_rate_data = latest_risk_free_rate(tb3m_df)
+    print(risk_free_rate_data)
+    with open(risk_free_rate_filename, "w", encoding="utf-8") as f:
+        json.dump(risk_free_rate_data, f, indent=4)
     return risk_free_rate_data
 
 
