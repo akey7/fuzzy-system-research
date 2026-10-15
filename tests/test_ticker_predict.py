@@ -17,13 +17,21 @@ from fuzzy_system_research.forecasting.arima_models import ArimaModels
 from fuzzy_system_research.forecasting.ticker_predict import ArimaWalkForward
 
 
+def stub_order(last_date: pd.Timestamp) -> tuple[int, int]:
+    """A (p, q) that varies from window to window, never (0, 0)."""
+    return (1, 0) if last_date.day % 2 else (0, 1)
+
+
 class StubArimaModels:
     """
-    Real pred_date logic, dummy forecast (last observed price). Records every
-    series passed to fit() in StubArimaModels.fitted.
+    Real pred_date logic, dummy forecast (last observed price), and an order
+    that depends on the window (stub_order). Records every series passed to
+    fit() in StubArimaModels.fitted, and (ticker, pred_date, order) for every
+    forecast in StubArimaModels.orders.
     """
 
     fitted: list[pd.Series] = []
+    orders: list[tuple[str, pd.Timestamp, tuple[int, int]]] = []
 
     def __init__(self, n_workers=6):
         self._dates = ArimaModels(n_workers=n_workers)
@@ -31,12 +39,15 @@ class StubArimaModels:
     def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
         StubArimaModels.fitted.append(original_ts)
         pred_date = self._dates.next_trading_day(original_ts.index[-1])
-        return pred_date, float(original_ts.dropna().iloc[-1])
+        order = stub_order(original_ts.index[-1])
+        StubArimaModels.orders.append((original_ts.name, pred_date, order))
+        return pred_date, float(original_ts.dropna().iloc[-1]), order
 
 
 @pytest.fixture(autouse=True)
 def stub_arima(monkeypatch):
     StubArimaModels.fitted = []
+    StubArimaModels.orders = []
     monkeypatch.setattr(ticker_predict, "ArimaModels", StubArimaModels)
 
 
@@ -149,3 +160,82 @@ def test_statsmodels_arima_fits_and_forecasts_on_nyse_frequency():
         forecast = model.forecast(steps=1)
     assert len(forecast) == 1
     assert np.isfinite(forecast.iloc[0])
+
+
+# ARIMA order columns: T_arima_p and T_arima_q
+
+
+def test_order_columns_follow_each_forecast_column():
+    forecasts = ArimaWalkForward().train_arima_models(nyse_prices("2026-04-02"))
+    assert list(forecasts.columns) == [
+        "AAA_arima", "AAA_arima_p", "AAA_arima_q", "AAA",
+        "BBB_arima", "BBB_arima_p", "BBB_arima_q", "BBB",
+    ]
+
+
+def test_order_columns_hold_the_order_of_each_rows_model():
+    forecasts = ArimaWalkForward().train_arima_models(nyse_prices("2026-04-02"))
+    assert StubArimaModels.orders
+    for ticker, pred_date, (p, q) in StubArimaModels.orders:
+        assert forecasts.loc[pred_date, f"{ticker}_arima_p"] == p
+        assert forecasts.loc[pred_date, f"{ticker}_arima_q"] == q
+    # Both stub orders occur, so a constant column would not pass.
+    assert set(forecasts["AAA_arima_p"]) == {0, 1}
+
+
+def test_order_columns_are_integers_on_every_row_including_the_last():
+    forecasts = ArimaWalkForward().train_arima_models(nyse_prices("2026-04-02"))
+    order_columns = [c for c in forecasts.columns if c.endswith(("_arima_p", "_arima_q"))]
+    assert len(order_columns) == 4
+    for column in order_columns:
+        assert pd.api.types.is_integer_dtype(forecasts[column])
+        assert forecasts[column].notna().all()
+
+
+def test_order_columns_round_trip_through_csv_as_integers(tmp_path):
+    # The uploaded CSV is written by load_or_train_forecasts().
+    path = str(tmp_path / "all_forecasts.csv")
+    ticker_predict.load_or_train_forecasts(
+        nyse_prices("2026-04-02"), path, trainer=ArimaWalkForward()
+    )
+    loaded = pd.read_csv(path, index_col="pred_date", parse_dates=True)
+    assert pd.api.types.is_integer_dtype(loaded["AAA_arima_p"])
+    assert pd.api.types.is_integer_dtype(loaded["BBB_arima_q"])
+    # Forecast columns are still found by the "_arima" suffix alone.
+    assert [c for c in loaded.columns if c.endswith("_arima")] == ["AAA_arima", "BBB_arima"]
+
+
+# ArimaModels.select_order (pure; no model fitting)
+
+
+def order_results(rows: dict[tuple[int, int], tuple[float, float]]) -> pd.DataFrame:
+    """train_arima()-shaped results: (p, q) index, rmse and mean_bic columns."""
+    index = pd.MultiIndex.from_tuples(list(rows), names=["p", "q"])
+    rmse, bic = zip(*rows.values())
+    return pd.DataFrame({"rmse": rmse, "mean_bic": bic}, index=index)
+
+
+def test_select_order_picks_best_average_rank_and_returns_ints():
+    results = order_results(
+        {
+            (0, 1): (0.030, -50.0),  # Ranks: rmse 3, bic 2 -> average 2.5
+            (1, 0): (0.010, -40.0),  # Ranks: rmse 1, bic 3 -> average 2.0
+            (1, 1): (0.020, -60.0),  # Ranks: rmse 2, bic 1 -> average 1.5 (best)
+        }
+    )
+    # The best RMSE alone, (1, 0), does not win: (1, 1) has the best average.
+    assert ArimaModels().select_order(results) == (1, 1)
+    p, q = ArimaModels().select_order(results)
+    assert type(p) is int and type(q) is int
+
+
+def test_select_order_weighs_rmse_and_bic_equally():
+    results = order_results(
+        {
+            (0, 1): (0.010, -10.0),  # Best RMSE, worst BIC -> (1 + 3) / 2 = 2.0
+            (1, 0): (0.030, -30.0),  # Worst RMSE, best BIC -> (3 + 1) / 2 = 2.0
+            (1, 1): (0.020, -20.0),  # Middle on both -> 2.0
+        }
+    )
+    # A three-way tie goes to the first row.
+    assert ArimaModels().select_order(results) == (0, 1)

@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 15 |
+| **Contract version** | 16 |
 | **Last updated** | 2026-10-15 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -250,21 +250,31 @@ In the tangency line formula, `risk_free_rate` and `sharpe_ratio` are the YAML f
 
 ### Shape
 
-A wide table with one row per forecast date and, for every ticker `T`, two columns:
+A wide table with one row per forecast date and, for every ticker `T`, four columns:
 
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `pred_date` (first column, the index) | timestamp string, e.g. `2026-10-09 17:00:00` | The NYSE trading day being forecast. The time of day (`17:00:00`) is a fixed label with no meaning; use only the date. |
 | `T_arima` | float | The ARIMA model's one-step-ahead forecast of `T`'s adjusted close (US dollars) for `pred_date`. |
+| `T_arima_p` | integer | The autoregressive order `p` of the model that made this row's `T_arima` forecast. Present on every row, including the last. *Added in v16.* |
+| `T_arima_q` | integer | The moving-average order `q` of that model. Present on every row, including the last. *Added in v16.* |
 | `T` | float, may be empty | The actual adjusted close (US dollars) of `T` on `pred_date`. **Empty on rows that have no actual value yet** (see below). |
+
+`p` and `q` are the orders of an ARIMA(p, 0, q) model fit to daily **log returns**, which is the same model as ARIMA(p, 1, q) on log prices. So the differencing order `d` is always 1 relative to prices and is not stored. Orders are re-selected for every row and ticker (see "How the forecasts are produced"), so they can change from row to row. With the current settings each is 0 or 1, and `(0, 0)` never occurs. Do not hard-code that range. Date folders written before v16 have no order columns, so treat them as optional.
 
 Example header for three tickers (illustrative):
 
 ```
-pred_date,GLD_arima,GLD,NVDA_arima,NVDA,QQQ_arima,QQQ
+pred_date,GLD_arima,GLD_arima_p,GLD_arima_q,GLD,NVDA_arima,NVDA_arima_p,NVDA_arima_q,NVDA,QQQ_arima,QQQ_arima_p,QQQ_arima_q,QQQ
 ```
 
-Do not rely on column order. Identify forecast columns by the `_arima` suffix, and actual-price columns by matching the remaining name against the ticker list.
+Do not rely on column order. Identify columns by **exact suffix match**:
+
+- Forecast columns end with `_arima`.
+- Order columns end with `_arima_p` or `_arima_q`.
+- Actual-price columns are the remaining names that match a ticker exactly.
+
+Do **not** treat every column *containing* `_arima` as a forecast column, because `T_arima_p` and `T_arima_q` also contain it.
 
 ### How the forecasts are produced
 
@@ -276,7 +286,7 @@ Do not rely on column order. Identify forecast columns by the `_arima` suffix, a
 
 ### Not included
 
-The file does **not** contain RMSE, the selected `(p, q)` orders, confidence intervals, or a naive-baseline forecast. If the frontend needs an error metric, compute it from the `T` and `T_arima` columns on rows where `T` is not empty, and state which metric and window it uses. If any of these should be uploaded, it needs a contract change (an additive one is preferred).
+The file does **not** contain RMSE, confidence intervals, or a naive-baseline forecast. The selected `(p, q)` orders are included since v16 (`T_arima_p`, `T_arima_q`). If the frontend needs an error metric, compute it from the `T` and `T_arima` columns on rows where `T` is not empty, and state which metric and window it uses. If any of these should be uploaded, it needs a contract change (an additive one is preferred).
 
 ---
 
@@ -325,6 +335,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 16 | 2026-10-15 | **Additive** (no existing column renamed, removed, or changed). `all_forecasts.csv` gains two integer columns per ticker, `T_arima_p` and `T_arima_q`: the order of the ARIMA(p, 0, q) model on log returns that made each row's forecast, present on every row. Each ticker's columns are now ordered `T_arima`, `T_arima_p`, `T_arima_q`, `T` (order is still not part of the contract). Documented the exact-suffix rule for telling forecast, order, and actual columns apart. Frontend must: check that it identifies forecast columns by the exact `_arima` suffix (not by containing `_arima`) and actual columns by exact ticker match; otherwise the new columns could be misread as forecasts. Displaying the orders is optional. Older date folders lack these columns, so readers must treat them as optional. |
 | 15 | 2026-10-15 | Methodology fix, non-breaking (no change to keys, columns, formats, or units; `pred_date` was already the next NYSE trading day). ARIMA training windows were resampled to pandas weekdays (`"B"`), which inserted NYSE holidays such as Presidents Day as missing observations inside the window. Windows now contain only NYSE trading sessions, so a model time step is always one session. `T_arima` values for windows that span an NYSE holiday can differ slightly from earlier runs; date folders already uploaded keep their old forecasts unless the backend is re-run with `--retrain-arima`. Frontend: no change required. |
 | 14 | 2026-10-14 | Bug fix, non-breaking (no change to keys, formats, or units). FRED leaves `DTB3` empty on bond-market holidays (e.g. Columbus Day); the backend used the latest row even when it was empty, which could make `risk_free_rate`, `daily_risk_free_rate`, `sharpe_ratio`, and the tangency line `NaN`. It now uses the most recent non-missing value, so `risk_free_rate_date` can be earlier than the last FRED row, and a run with no valid rate fails before uploading. Clarified the two `risk_free_rate` field descriptions. Frontend: no change required. |
 | 13 | 2026-10-12 | **Configuration rename; no objects move and key strings are unchanged.** The environment variables naming the two top-level folders are renamed so their names say what they hold: `PORTFOLIO_OPTIMIZATION_SPACE_NAME` is now `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, and `TIME_SERIES_SPACE_NAME` is now `FSF_FRONT_END_TIME_SERIES_FOLDER`. Values are unchanged. No fallback: the backend reads only the new names, and the human has already renamed them in the backend `.env` for dev and production. Documented that dev and production share the one Space and differ only in folder names, and listed `FSF_FRONT_END_BUCKET_NAME` with the folder variables. Frontend must: read the new names, rename its Hugging Face secrets and any local `.env` (same values), and drop the old names. |

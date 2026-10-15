@@ -72,19 +72,22 @@ class ArimaModels:
 
         Returns
         -------
-        tuple[pd.Timestamp, float]
+        tuple[pd.Timestamp, float, tuple[int, int]]
             The date being forecast (the next NYSE trading day after the
-            last index entry) and the forecast price in the units of
-            original_ts.
+            last index entry), the forecast price in the units of
+            original_ts, and the (p, q) order of the model that made the
+            forecast (see select_order()). The model is ARIMA(p, 0, q) on
+            log returns, equivalent to ARIMA(p, 1, q) on log prices.
         """
         ts = self.log_diff_prep(original_ts)
         self.train_result = self.train_arima(
             ts, max_p=max_p, max_q=max_q, train_len=train_len, d=0
         )
+        best_order = self.select_order(self.train_result)
         self.final_model = self.best_arima_model(ts, self.train_result)
         pred_date = self.next_trading_day(ts.index[-1])
         pred = self.predict(original_ts)
-        return pred_date, pred
+        return pred_date, pred, best_order
 
     def log_diff_prep(self, original_ts):
         """
@@ -223,6 +226,29 @@ class ArimaModels:
         }
         return result
 
+    def select_order(self, train_result: pd.DataFrame) -> tuple[int, int]:
+        """
+        Choose the (p, q) order with the best combined rank: each candidate
+        is ranked by out-of-sample RMSE and by mean BIC (lower is better for
+        both), the two ranks are averaged, and the lowest average wins. Ties
+        go to the first candidate in train_result's row order. Pure function.
+
+        Parameters
+        ----------
+        train_result : pd.DataFrame
+            Training results from train_arima(), indexed by (p, q), with at
+            least "rmse" and "mean_bic" columns.
+
+        Returns
+        -------
+        tuple[int, int]
+            The selected (p, q).
+        """
+        best_p, best_q = (
+            train_result.rank().loc[:, ["rmse", "mean_bic"]].mean(axis=1).idxmin()
+        )
+        return int(best_p), int(best_q)
+
     def best_arima_model(self, ts, train_result):
         """
         Use training results from train_arima and make a final ARIMA
@@ -241,10 +267,7 @@ class ArimaModels:
         -------
         ARIMA models trained with the best p and q values.
         """
-        best_p, best_q = (
-            train_result.rank().loc[:, ["rmse", "mean_bic"]].mean(1).idxmin()
-        )
-        # print(best_p, best_q)
+        best_p, best_q = self.select_order(train_result)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
             best_arima_model = tsa.ARIMA(endog=ts, order=(best_p, 0, best_q)).fit()

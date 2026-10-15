@@ -99,7 +99,11 @@ class ArimaWalkForward:
         Returns
         -------
         pd.DataFrame
-            The forecasts after each model training.
+            The forecasts after each model training, indexed by pred_date.
+            For every ticker T there are four columns, in this order:
+            T_arima (forecast price), T_arima_p and T_arima_q (integer order
+            of the ARIMA(p, 0, q) model on log returns that made the row's
+            forecast), and T (the actual price, missing on the final row).
         """
         all_forecast_dfs = []
         timestamp_ranges = self.training_window_start_end(
@@ -117,11 +121,16 @@ class ArimaWalkForward:
                 # (pandas "B" would insert them as missing values), while a
                 # session missing from the data still appears as NaN.
                 ticker_ts = ticker_ts.asfreq(self.dm.cbd)
-                pred_date, pred = am.fit(
+                pred_date, pred, (p, q) = am.fit(
                     ticker_ts, max_p=max_p, max_q=max_q, train_len=10
                 )
                 pred_key = f"{ticker}_arima"
-                pred_dict = {"pred_date": pred_date, pred_key: pred}
+                pred_dict = {
+                    "pred_date": pred_date,
+                    pred_key: pred,
+                    f"{pred_key}_p": p,
+                    f"{pred_key}_q": q,
+                }
                 print(pred_dict)
                 forecast_rows.append(pred_dict)
             forecast_df = (
