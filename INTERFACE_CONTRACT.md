@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 16 |
+| **Contract version** | 17 |
 | **Last updated** | 2026-10-15 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -279,7 +279,7 @@ Do **not** treat every column *containing* `_arima` as a forecast column, becaus
 ### How the forecasts are produced
 
 - **Horizon:** one business day ahead. Each row's forecast was made using only data **before** `pred_date`.
-- **Walk-forward:** for each forecast date, an ARIMA model is refit on a sliding window of the preceding 20 business days of prices (log-transformed and differenced once), with orders `p` and `q` chosen from 0 to 1 and 0 to 1 (excluding 0,0) by RMSE and BIC rank on the window. The window slides one business day per row. Each window contains only NYSE trading sessions (since v15), so one model time step is one session; NYSE holidays are skipped, not treated as missing observations.
+- **Walk-forward:** for each forecast date, an ARIMA model is refit on a sliding window of the preceding 20 business days of prices (log-transformed and differenced once), with orders `p` and `q` chosen from 0 to 1 and 0 to 1 (excluding 0,0) by RMSE and BIC rank on the window. The window slides one business day per row. Each window contains only NYSE trading sessions (since v15), so one model time step is one session; NYSE holidays are skipped, not treated as missing observations. Orders are scored by one-step-ahead forecasts on rolling 10-return sub-windows; since v17, a sub-window whose fit fails is left out of that candidate's score (an order whose fits all fail ranks last), and every sub-window holds 10 actual returns.
 - **Back to dollars:** the model forecasts a log return. The backend converts it to a price with `last_price × exp(forecasted log return)`, so `T_arima` is in the same units as `T`.
 - **Last row:** the final row is the first NYSE trading day after the latest available data. Its `T` values are **empty** because that day has not happened yet. Treat that row as the live forecast and the rows above it as the backtest.
 - **Rows** are unique by `pred_date` and sorted ascending. The number of rows is about one month of business days and is not fixed.
@@ -335,6 +335,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 17 | 2026-10-15 | Methodology fix, non-breaking (no change to keys, columns, formats, or units). Two corrections to how ARIMA orders are chosen: (1) when a model fit failed on a rolling sub-window, the previous sub-window's model was reused to score it (or, on the first sub-window, the run crashed); failed sub-windows are now excluded from the order's RMSE and BIC, and an order whose fits all fail ranks last. (2) The leading missing value left by differencing is dropped, so every sub-window holds 10 actual log returns instead of the first holding 9. Selected orders and `T_arima` values can differ slightly from earlier runs; already-uploaded dates keep their forecasts unless re-run with `--retrain-arima`. Frontend: no change required. |
 | 16 | 2026-10-15 | **Additive** (no existing column renamed, removed, or changed). `all_forecasts.csv` gains two integer columns per ticker, `T_arima_p` and `T_arima_q`: the order of the ARIMA(p, 0, q) model on log returns that made each row's forecast, present on every row. Each ticker's columns are now ordered `T_arima`, `T_arima_p`, `T_arima_q`, `T` (order is still not part of the contract). Documented the exact-suffix rule for telling forecast, order, and actual columns apart. Frontend must: check that it identifies forecast columns by the exact `_arima` suffix (not by containing `_arima`) and actual columns by exact ticker match; otherwise the new columns could be misread as forecasts. Displaying the orders is optional. Older date folders lack these columns, so readers must treat them as optional. |
 | 15 | 2026-10-15 | Methodology fix, non-breaking (no change to keys, columns, formats, or units; `pred_date` was already the next NYSE trading day). ARIMA training windows were resampled to pandas weekdays (`"B"`), which inserted NYSE holidays such as Presidents Day as missing observations inside the window. Windows now contain only NYSE trading sessions, so a model time step is always one session. `T_arima` values for windows that span an NYSE holiday can differ slightly from earlier runs; date folders already uploaded keep their old forecasts unless the backend is re-run with `--retrain-arima`. Frontend: no change required. |
 | 14 | 2026-10-14 | Bug fix, non-breaking (no change to keys, formats, or units). FRED leaves `DTB3` empty on bond-market holidays (e.g. Columbus Day); the backend used the latest row even when it was empty, which could make `risk_free_rate`, `daily_risk_free_rate`, `sharpe_ratio`, and the tangency line `NaN`. It now uses the most recent non-missing value, so `risk_free_rate_date` can be earlier than the last FRED row, and a run with no valid rate fails before uploading. Clarified the two `risk_free_rate` field descriptions. Frontend: no change required. |

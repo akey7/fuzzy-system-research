@@ -45,10 +45,10 @@ class ArimaModels:
     def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
         """
         Fit many ARIMA models to find the best p and q values.
-        Fitting is parrallelized across the number of workers specified
-        by n_workers specified during instantation. The original time
-        series is log-transformed and differenced with a lag of 1
-        before fitting the models. max_p, max_q, and train_len
+        Fitting is parallelized across the number of workers specified
+        by n_workers during instantiation. The prices in original_ts are
+        converted to log returns by to_log_returns(), the only differencing
+        step, before fitting the models. max_p, max_q, and train_len
         are passed to the other fitting functions as appropriate. It also
         sets instance attributes with the training results and final model.
 
@@ -79,7 +79,7 @@ class ArimaModels:
             forecast (see select_order()). The model is ARIMA(p, 0, q) on
             log returns, equivalent to ARIMA(p, 1, q) on log prices.
         """
-        ts = self.log_diff_prep(original_ts)
+        ts = self.to_log_returns(original_ts)
         self.train_result = self.train_arima(
             ts, max_p=max_p, max_q=max_q, train_len=train_len, d=0
         )
@@ -89,23 +89,27 @@ class ArimaModels:
         pred = self.predict(original_ts)
         return pred_date, pred, best_order
 
-    def log_diff_prep(self, original_ts):
+    def to_log_returns(self, original_ts: pd.Series) -> pd.Series:
         """
-        Prepare a time series for modeling by log transforming and
-        differencing. The date time index is passed through
-        unaffected.
+        Convert prices to daily log returns, log(P_t) - log(P_{t-1}). This
+        is the only differencing step in the model: the ARIMA models are fit
+        with d = 0 on these returns, which is ARIMA(p, 1, q) on log prices.
+
+        The first value, which has no previous price, is dropped. The
+        datetime index (and its frequency) is otherwise passed through, so a
+        session missing from the prices still appears as NaN.
 
         Parameters
         ----------
         original_ts : pd.Series
-            The original time series to be transformed.
+            Prices, one entry per trading session.
 
         Returns
         -------
         pd.Series
-            The transformed time series.
+            Log returns, one entry shorter than original_ts.
         """
-        return np.log(original_ts).diff()
+        return np.log(original_ts).diff().iloc[1:]
 
     def train_arima(self, ts, max_p=5, d=0, max_q=5, train_len=120, n_workers=6):
         """
@@ -116,8 +120,8 @@ class ArimaModels:
         Parameters
         ----------
         ts : pd.Series
-            The time series to be modeled. The raw data should be transformed
-            by log_diff_prep() first.
+            The time series to be modeled. The raw prices should be
+            transformed by to_log_returns() first.
 
         max_p : int, optional
             The maximum number of lagged values to test. Defaults to 5.
@@ -169,11 +173,19 @@ class ArimaModels:
         Train and evaluate an ARIMA model with the given p, d, and q parameters
         in the task dictionary.
 
-        Meant to be used by the train_arima function to perform parrallizable
+        Rolling-origin evaluation: for each sub-window of train_len
+        observations, fit the model and forecast the next observation one
+        step ahead. If a fit fails (LinAlgError or ValueError), that step is
+        counted as an error and recorded as a missing forecast; it is
+        excluded from the RMSE and from the AIC/BIC means rather than scored
+        with another step's model. If every fit fails, rmse, mean_aic, and
+        mean_bic are infinite so the order ranks last in select_order().
+
+        Meant to be used by the train_arima function to perform parallelizable
         tasks on cores.
 
-        Paremters
-        ---------
+        Parameters
+        ----------
         task : dict
             Dictionary that defines the model training task from train_arima.
 
@@ -189,7 +201,7 @@ class ArimaModels:
         d = task["d"]
         q = task["q"]
         train_len = task["train_len"]
-        y_true = ts[train_len:]
+        y_true = ts.iloc[train_len:]
         y_pred = []
         bics = []
         aics = []
@@ -203,24 +215,35 @@ class ArimaModels:
                     model = tsa.ARIMA(endog=train_set, order=(p, d, q)).fit()
                 except LinAlgError:
                     n_convergence_errors += 1
+                    y_pred.append(np.nan)
+                    continue
                 except ValueError:
                     n_stationarity_errors += 1
+                    y_pred.append(np.nan)
+                    continue
                 forecast = model.forecast(steps=1)
                 y_pred.append(forecast.iloc[0])
                 aics.append(model.aic)
                 bics.append(model.bic)
         df = (
-            pd.DataFrame({"y_true": y_true, "y_pred": y_pred})
+            pd.DataFrame({"y_true": y_true.to_numpy(), "y_pred": y_pred})
             .replace(np.inf, np.nan)
             .dropna()
         )
-        rmse = np.sqrt(mean_squared_error(y_true=df["y_true"], y_pred=df["y_pred"]))
+        if df.empty:
+            rmse = mean_aic = mean_bic = np.inf
+        else:
+            rmse = np.sqrt(
+                mean_squared_error(y_true=df["y_true"], y_pred=df["y_pred"])
+            )
+            mean_aic = np.mean(aics)
+            mean_bic = np.mean(bics)
         result = {
             "p": p,
             "q": q,
             "rmse": rmse,
-            "mean_aic": np.mean(aics),
-            "mean_bic": np.mean(bics),
+            "mean_aic": mean_aic,
+            "mean_bic": mean_bic,
             "n_convergence_errors": n_convergence_errors,
             "n_stationarity_errors": n_stationarity_errors,
         }

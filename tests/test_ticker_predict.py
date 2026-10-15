@@ -153,7 +153,7 @@ def test_statsmodels_arima_fits_and_forecasts_on_nyse_frequency():
 
     prices = nyse_prices("2026-04-02", n_sessions=30)["AAA"]
     window = prices.asfreq(DateManager().cbd)
-    log_returns = ArimaModels().log_diff_prep(window).iloc[1:]
+    log_returns = ArimaModels().to_log_returns(window)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         model = tsa.ARIMA(endog=log_returns, order=(1, 0, 0)).fit()

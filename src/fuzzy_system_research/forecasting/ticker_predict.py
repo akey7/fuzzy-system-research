@@ -71,8 +71,9 @@ class ArimaWalkForward:
         walk-forward backtesting scheme of model evaluation. Each training
         seeks the optimal (p, q) values for the best performance.
 
-        Though not in this function, the time series are log transformed and
-        differenced with a lag of 1 prior to training.
+        This function passes prices, not returns: the single differencing
+        step (prices to daily log returns) happens inside ArimaModels.fit(),
+        via ArimaModels.to_log_returns().
 
         Each window is resampled to the NYSE trading calendar, so one model
         time step is one trading session: holidays are skipped rather than
