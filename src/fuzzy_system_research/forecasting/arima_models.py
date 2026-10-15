@@ -25,7 +25,7 @@ class ArimaModels:
         self.train_result = None
         self.final_model = None
 
-    def next_business_day_skip_holidays(self, date: pd.Timestamp) -> pd.Timestamp:
+    def next_trading_day(self, date: pd.Timestamp) -> pd.Timestamp:
         """
         Finds the next NYSE trading day, skipping weekends and NYSE holidays.
         The time of day of the given date is preserved.
@@ -49,12 +49,12 @@ class ArimaModels:
         by n_workers specified during instantation. The original time
         series is log-transformed and differenced with a lag of 1
         before fitting the models. max_p, max_q, and train_len
-        are passed to the other fitting functions as appropriate. This
-        function does not return a value; rather, it sets instance
-        attributes with the results of the operations.
+        are passed to the other fitting functions as appropriate. It also
+        sets instance attributes with the training results and final model.
 
-        This assumes the frequency of the index is "B" and will
-        predict the next business day at each training.
+        This assumes one index entry per NYSE trading session (as produced
+        by asfreq(DateManager().cbd)) and predicts the next NYSE trading day
+        (see next_trading_day()).
 
         Parameters
         ----------
@@ -72,14 +72,17 @@ class ArimaModels:
 
         Returns
         -------
-        None
+        tuple[pd.Timestamp, float]
+            The date being forecast (the next NYSE trading day after the
+            last index entry) and the forecast price in the units of
+            original_ts.
         """
         ts = self.log_diff_prep(original_ts)
         self.train_result = self.train_arima(
             ts, max_p=max_p, max_q=max_q, train_len=train_len, d=0
         )
         self.final_model = self.best_arima_model(ts, self.train_result)
-        pred_date = self.next_business_day_skip_holidays(ts.index[-1])
+        pred_date = self.next_trading_day(ts.index[-1])
         pred = self.predict(original_ts)
         return pred_date, pred
 

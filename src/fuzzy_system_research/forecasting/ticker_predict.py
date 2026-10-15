@@ -74,6 +74,10 @@ class ArimaWalkForward:
         Though not in this function, the time series are log transformed and
         differenced with a lag of 1 prior to training.
 
+        Each window is resampled to the NYSE trading calendar, so one model
+        time step is one trading session: holidays are skipped rather than
+        treated as missing observations.
+
         Parameters
         ----------
         df : pd.DataFrame
@@ -109,7 +113,10 @@ class ArimaWalkForward:
                 am = ArimaModels(n_workers=n_workers)
                 ticker_ts = df[ticker]
                 ticker_ts = ticker_ts.loc[start_timestamp:end_timestamp]
-                ticker_ts = ticker_ts.asfreq("B")  # Business day frequency
+                # One row per NYSE trading session. NYSE holidays get no row
+                # (pandas "B" would insert them as missing values), while a
+                # session missing from the data still appears as NaN.
+                ticker_ts = ticker_ts.asfreq(self.dm.cbd)
                 pred_date, pred = am.fit(
                     ticker_ts, max_p=max_p, max_q=max_q, train_len=10
                 )
