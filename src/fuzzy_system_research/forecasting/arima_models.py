@@ -9,6 +9,11 @@ from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from sklearn.metrics import mean_squared_error
 from fuzzy_system_research.data.date_manager import DateManager
 
+# Number of times prices are differenced before modeling: once, by
+# ArimaModels.to_log_returns(). The models are ARIMA(p, 0, q) on log returns,
+# which is ARIMA(p, PRICE_DIFFERENCING_ORDER, q) on log prices.
+PRICE_DIFFERENCING_ORDER = 1
+
 
 class ArimaModels:
     def __init__(self, n_workers=6):

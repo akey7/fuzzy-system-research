@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 17 |
+| **Contract version** | 18 |
 | **Last updated** | 2026-10-15 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -250,31 +250,49 @@ In the tangency line formula, `risk_free_rate` and `sharpe_ratio` are the YAML f
 
 ### Shape
 
-A wide table with one row per forecast date and, for every ticker `T`, four columns:
+A wide table with one row per forecast date and, for every ticker `T`, five columns:
 
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `pred_date` (first column, the index) | timestamp string, e.g. `2026-10-09 17:00:00` | The NYSE trading day being forecast. The time of day (`17:00:00`) is a fixed label with no meaning; use only the date. |
 | `T_arima` | float | The ARIMA model's one-step-ahead forecast of `T`'s adjusted close (US dollars) for `pred_date`. |
 | `T_arima_p` | integer | The autoregressive order `p` of the model that made this row's `T_arima` forecast. Present on every row, including the last. *Added in v16.* |
+| `T_arima_d` | integer | The differencing order `d` of that model, stated on **log prices**. Always `1`, on every row including the last. *Added in v18.* |
 | `T_arima_q` | integer | The moving-average order `q` of that model. Present on every row, including the last. *Added in v16.* |
 | `T` | float, may be empty | The actual adjusted close (US dollars) of `T` on `pred_date`. **Empty on rows that have no actual value yet** (see below). |
 
-`p` and `q` are the orders of an ARIMA(p, 0, q) model fit to daily **log returns**, which is the same model as ARIMA(p, 1, q) on log prices. So the differencing order `d` is always 1 relative to prices and is not stored. Orders are re-selected for every row and ticker (see "How the forecasts are produced"), so they can change from row to row. With the current settings each is 0 or 1, and `(0, 0)` never occurs. Do not hard-code that range. Date folders written before v16 have no order columns, so treat them as optional.
+Each model is fit as ARIMA(p, 0, q) on daily **log returns**, which is the same model as ARIMA(p, 1, q) on log prices. The three order columns describe it on log prices: `(T_arima_p, T_arima_d, T_arima_q)` is the `(p, d, q)` of ARIMA(p, d, q) on log prices, so `T_arima_d` is always `1`. Orders `p` and `q` are re-selected for every row and ticker (see "How the forecasts are produced"), so they can change from row to row. With the current settings each is 0 or 1, and `(p, q) = (0, 0)` never occurs. Do not hard-code that range, and read `d` from the column rather than assuming 1. Date folders written before v16 have no order columns, and those written before v18 have no `T_arima_d` column, so treat all three as optional.
 
 Example header for three tickers (illustrative):
 
 ```
-pred_date,GLD_arima,GLD_arima_p,GLD_arima_q,GLD,NVDA_arima,NVDA_arima_p,NVDA_arima_q,NVDA,QQQ_arima,QQQ_arima_p,QQQ_arima_q,QQQ
+pred_date,GLD_arima,GLD_arima_p,GLD_arima_d,GLD_arima_q,GLD,NVDA_arima,NVDA_arima_p,NVDA_arima_d,NVDA_arima_q,NVDA,QQQ_arima,QQQ_arima_p,QQQ_arima_d,QQQ_arima_q,QQQ
 ```
 
 Do not rely on column order. Identify columns by **exact suffix match**:
 
 - Forecast columns end with `_arima`.
-- Order columns end with `_arima_p` or `_arima_q`.
+- Order columns end with `_arima_p`, `_arima_d`, or `_arima_q`.
 - Actual-price columns are the remaining names that match a ticker exactly.
 
-Do **not** treat every column *containing* `_arima` as a forecast column, because `T_arima_p` and `T_arima_q` also contain it.
+Do **not** treat every column *containing* `_arima` as a forecast column, because the order columns also contain it.
+
+### Suggested user-facing wording
+
+The frontend may adapt this wording, but it must keep its meaning: the model is fit on log returns, the orders are stated on log prices, the orders can change daily, and forecasts are not investment advice. It assumes readers know what ARIMA(p, d, q) means.
+
+**Tooltip on a forecast point** (fill in the row's `T_arima_p`, `T_arima_d`, `T_arima_q`):
+
+> ARIMA({p}, {d}, {q}) on log prices
+> (fit as ARIMA({p}, 0, {q}) on daily log returns)
+
+**Text near the forecast plot:**
+
+> **How these forecasts are made.** Each point is a one-trading-day-ahead forecast of the closing price, made only with data available before that day. For every day and ticker, an ARIMA model is refit on the previous 20 trading days, and its orders p and q are chosen again, so they can change from one day to the next. Hover over a forecast to see the model behind it.
+>
+> **Why d = 1.** The model is fit to daily log returns as ARIMA(p, 0, q). Turning prices into returns is one round of differencing, so the same model on log prices is ARIMA(p, 1, q). The tooltip shows the log-price version.
+>
+> These are modeled values for illustration, not investment advice.
 
 ### How the forecasts are produced
 
@@ -286,7 +304,7 @@ Do **not** treat every column *containing* `_arima` as a forecast column, becaus
 
 ### Not included
 
-The file does **not** contain RMSE, confidence intervals, or a naive-baseline forecast. The selected `(p, q)` orders are included since v16 (`T_arima_p`, `T_arima_q`). If the frontend needs an error metric, compute it from the `T` and `T_arima` columns on rows where `T` is not empty, and state which metric and window it uses. If any of these should be uploaded, it needs a contract change (an additive one is preferred).
+The file does **not** contain RMSE, confidence intervals, or a naive-baseline forecast. The selected model orders are included: `T_arima_p` and `T_arima_q` since v16, `T_arima_d` since v18. If the frontend needs an error metric, compute it from the `T` and `T_arima` columns on rows where `T` is not empty, and state which metric and window it uses. If any of these should be uploaded, it needs a contract change (an additive one is preferred).
 
 ---
 
@@ -335,6 +353,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 18 | 2026-10-15 | **Additive** (no existing column renamed, removed, or changed). `all_forecasts.csv` gains an integer column `T_arima_d` per ticker, always `1`, so that `(T_arima_p, T_arima_d, T_arima_q)` is the model's full `(p, d, q)` on log prices: ARIMA(p, 0, q) on log returns is ARIMA(p, 1, q) on log prices. Each ticker's columns are now ordered `T_arima`, `T_arima_p`, `T_arima_d`, `T_arima_q`, `T` (order is still not part of the contract). Added "Suggested user-facing wording" for the forecast tooltip and the text near the plot. Frontend: the exact-suffix rule now includes `_arima_d`; the column is optional (absent before v18); show the wording if displaying model orders. |
 | 17 | 2026-10-15 | Methodology fix, non-breaking (no change to keys, columns, formats, or units). Two corrections to how ARIMA orders are chosen: (1) when a model fit failed on a rolling sub-window, the previous sub-window's model was reused to score it (or, on the first sub-window, the run crashed); failed sub-windows are now excluded from the order's RMSE and BIC, and an order whose fits all fail ranks last. (2) The leading missing value left by differencing is dropped, so every sub-window holds 10 actual log returns instead of the first holding 9. Selected orders and `T_arima` values can differ slightly from earlier runs; already-uploaded dates keep their forecasts unless re-run with `--retrain-arima`. Frontend: no change required. |
 | 16 | 2026-10-15 | **Additive** (no existing column renamed, removed, or changed). `all_forecasts.csv` gains two integer columns per ticker, `T_arima_p` and `T_arima_q`: the order of the ARIMA(p, 0, q) model on log returns that made each row's forecast, present on every row. Each ticker's columns are now ordered `T_arima`, `T_arima_p`, `T_arima_q`, `T` (order is still not part of the contract). Documented the exact-suffix rule for telling forecast, order, and actual columns apart. Frontend must: check that it identifies forecast columns by the exact `_arima` suffix (not by containing `_arima`) and actual columns by exact ticker match; otherwise the new columns could be misread as forecasts. Displaying the orders is optional. Older date folders lack these columns, so readers must treat them as optional. |
 | 15 | 2026-10-15 | Methodology fix, non-breaking (no change to keys, columns, formats, or units; `pred_date` was already the next NYSE trading day). ARIMA training windows were resampled to pandas weekdays (`"B"`), which inserted NYSE holidays such as Presidents Day as missing observations inside the window. Windows now contain only NYSE trading sessions, so a model time step is always one session. `T_arima` values for windows that span an NYSE holiday can differ slightly from earlier runs; date folders already uploaded keep their old forecasts unless the backend is re-run with `--retrain-arima`. Frontend: no change required. |

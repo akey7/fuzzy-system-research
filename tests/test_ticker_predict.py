@@ -162,14 +162,14 @@ def test_statsmodels_arima_fits_and_forecasts_on_nyse_frequency():
     assert np.isfinite(forecast.iloc[0])
 
 
-# ARIMA order columns: T_arima_p and T_arima_q
+# ARIMA order columns: T_arima_p, T_arima_d, and T_arima_q
 
 
 def test_order_columns_follow_each_forecast_column():
     forecasts = ArimaWalkForward().train_arima_models(nyse_prices("2026-04-02"))
     assert list(forecasts.columns) == [
-        "AAA_arima", "AAA_arima_p", "AAA_arima_q", "AAA",
-        "BBB_arima", "BBB_arima_p", "BBB_arima_q", "BBB",
+        "AAA_arima", "AAA_arima_p", "AAA_arima_d", "AAA_arima_q", "AAA",
+        "BBB_arima", "BBB_arima_p", "BBB_arima_d", "BBB_arima_q", "BBB",
     ]
 
 
@@ -185,8 +185,8 @@ def test_order_columns_hold_the_order_of_each_rows_model():
 
 def test_order_columns_are_integers_on_every_row_including_the_last():
     forecasts = ArimaWalkForward().train_arima_models(nyse_prices("2026-04-02"))
-    order_columns = [c for c in forecasts.columns if c.endswith(("_arima_p", "_arima_q"))]
-    assert len(order_columns) == 4
+    order_columns = [c for c in forecasts.columns if c.endswith(("_arima_p", "_arima_d", "_arima_q"))]
+    assert len(order_columns) == 6
     for column in order_columns:
         assert pd.api.types.is_integer_dtype(forecasts[column])
         assert forecasts[column].notna().all()
@@ -239,3 +239,20 @@ def test_select_order_weighs_rmse_and_bic_equally():
     )
     # A three-way tie goes to the first row.
     assert ArimaModels().select_order(results) == (0, 1)
+
+
+def test_d_column_is_one_on_every_row_and_survives_csv(tmp_path):
+    # ARIMA(p, 0, q) on log returns is ARIMA(p, 1, q) on log prices.
+    from fuzzy_system_research.forecasting.arima_models import PRICE_DIFFERENCING_ORDER
+
+    assert PRICE_DIFFERENCING_ORDER == 1
+    forecasts = ArimaWalkForward().train_arima_models(nyse_prices("2026-04-02"))
+    for ticker in ("AAA", "BBB"):
+        assert (forecasts[f"{ticker}_arima_d"] == 1).all()  # Including the last row.
+    path = str(tmp_path / "all_forecasts.csv")
+    forecasts.to_csv(path, index=True)
+    loaded = pd.read_csv(path, index_col="pred_date", parse_dates=True)
+    assert pd.api.types.is_integer_dtype(loaded["AAA_arima_d"])
+    assert (loaded["AAA_arima_d"] == 1).all()
+    # The suffix rule still finds exactly the forecast columns.
+    assert [c for c in loaded.columns if c.endswith("_arima")] == ["AAA_arima", "BBB_arima"]

@@ -2,7 +2,10 @@ import os
 from typing import Protocol
 import pandas as pd
 from fuzzy_system_research.data.date_manager import DateManager
-from fuzzy_system_research.forecasting.arima_models import ArimaModels
+from fuzzy_system_research.forecasting.arima_models import (
+    PRICE_DIFFERENCING_ORDER,
+    ArimaModels,
+)
 from fuzzy_system_research.storage.layout import ensure_parent_dir
 
 # Most recent trading sessions of price data the walk-forward ARIMA uses.
@@ -101,10 +104,12 @@ class ArimaWalkForward:
         -------
         pd.DataFrame
             The forecasts after each model training, indexed by pred_date.
-            For every ticker T there are four columns, in this order:
-            T_arima (forecast price), T_arima_p and T_arima_q (integer order
-            of the ARIMA(p, 0, q) model on log returns that made the row's
-            forecast), and T (the actual price, missing on the final row).
+            For every ticker T there are five columns, in this order:
+            T_arima (forecast price); T_arima_p, T_arima_d, and T_arima_q
+            (integer order of the model that made the row's forecast, stated
+            on log prices: ARIMA(p, 0, q) on log returns is ARIMA(p, 1, q) on
+            log prices, so T_arima_d is always PRICE_DIFFERENCING_ORDER = 1);
+            and T (the actual price, missing on the final row).
         """
         all_forecast_dfs = []
         timestamp_ranges = self.training_window_start_end(
@@ -130,6 +135,7 @@ class ArimaWalkForward:
                     "pred_date": pred_date,
                     pred_key: pred,
                     f"{pred_key}_p": p,
+                    f"{pred_key}_d": PRICE_DIFFERENCING_ORDER,
                     f"{pred_key}_q": q,
                 }
                 print(pred_dict)
