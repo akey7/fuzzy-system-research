@@ -101,7 +101,7 @@ The following folders should be created before running the scripts in the sectio
 
 1. `input/`: Holds risk free rate data.
 
-2. `input/annual/`: Holds the cached price downloads (one year of trading days, one file per run date). Both the optimization and the ARIMA forecasts use this data; ARIMA uses its last 40 trading days.
+2. `input/annual/`: Holds the cached price downloads (one year of trading days, one file per run date). Both the optimization and the ARIMA forecasts use this data; ARIMA uses its last 41 trading days (20-day training windows plus 20 scored backtest days).
 
 3. `output/`: Holds the results of runs, in one folder per data as-of date (the last NYSE trading day in the run's data). Subfolders are created automatically. The layout mirrors the frontend buckets, where each file's key is its path below `output/<kind>/`:
 
@@ -109,6 +109,7 @@ The following folders should be created before running the scripts in the sectio
    output/portfolio_optimization/YYYY-MM-DD/optimization_metadata.yml
    output/portfolio_optimization/YYYY-MM-DD/portfolio_optimization_plot_data.h5
    output/time_series/YYYY-MM-DD/all_forecasts.csv
+   output/time_series/YYYY-MM-DD/all_forecasts_metadata.yml
    ```
 
    Re-running for the same date overwrites that date's files, except that ARIMA training is skipped when that date's `all_forecasts.csv` already exists (unless `--retrain-arima` is given). See `INTERFACE_CONTRACT.md` for the bucket layout the frontend reads.
@@ -137,6 +138,7 @@ These modules are imported by the scripts and are not meant to be executed direc
 | `optimization/workflow.py`                  | One full optimization run from prices to annualized results, plus the `.h5` and `.yml` writers.                                                        | No                                   |
 | `forecasting/arima_models.py`               | Trains ARIMA models on price data.                                                                                                                      | No                                   |
 | `forecasting/ticker_predict.py`             | `ArimaWalkForward`: walk-forward ARIMA training over rolling windows; `load_or_train_forecasts` caches the result.                                      | No                                   |
+| `forecasting/metrics.py`                    | Accuracy of the ARIMA and naive forecasts over the last 20 trading days (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) for `all_forecasts_metadata.yml`. | No |
 | `pipeline.py`                               | Orchestrates one backend run and its uploads (`csv`, then `.h5`, then `.yml` last).                                                                    | Yes                                  |
 | `storage/layout.py`                         | Builds the dated `output/` paths and matching bucket keys (`YYYY-MM-DD/<file>`).                                                                        | No                                   |
 | `storage/s3_uploader.py`                    | Uploads files to the one DigitalOcean Space (`FSF_FRONT_END_BUCKET_NAME`) by full object key; rejects non-region-only endpoints.                       | Yes (other modules use it to upload) |

@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 20 |
+| **Contract version** | 21 |
 | **Last updated** | 2026-10-15 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -42,6 +42,7 @@ Every file is stored under a **date prefix** `YYYY-MM-DD/` inside its folder, on
 <FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/optimization_metadata.yml
 <FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/portfolio_optimization_plot_data.h5
 <FSF_FRONT_END_TIME_SERIES_FOLDER>/YYYY-MM-DD/all_forecasts.csv
+<FSF_FRONT_END_TIME_SERIES_FOLDER>/YYYY-MM-DD/all_forecasts_metadata.yml   (since v21)
 ```
 
 Dev and production are selected by the configured Space and folder names; the key patterns are identical in both. In this document, **"folder"** means one of these two top-level folders, and **"date folder"** means a `YYYY-MM-DD/` prefix inside one.
@@ -69,7 +70,7 @@ A date is **available** only when its data is complete in **both** folders:
 1. Key `<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/optimization_metadata.yml` exists. The backend uploads this file last of all three, so its presence means both optimization files for that date are complete (and, since v10, that the forecasts were uploaded just before).
 2. Key `<FSF_FRONT_END_TIME_SERIES_FOLDER>/YYYY-MM-DD/all_forecasts.csv` exists.
 
-Since v10, one backend run computes everything first and then uploads all three files in the order `all_forecasts.csv`, `portfolio_optimization_plot_data.h5`, `optimization_metadata.yml`; if any computation fails, nothing is uploaded. Readers must still check both folders, because dates written before v10 came from two separate scripts. Dates present in only one folder (for example, only one of the two pre-v10 scripts was run) are **not** available and must not be offered to users.
+Since v10, one backend run computes everything first and then uploads its files in the order `all_forecasts.csv`, `all_forecasts_metadata.yml` (since v21), `portfolio_optimization_plot_data.h5`, `optimization_metadata.yml`; if any computation fails, nothing is uploaded. Because `optimization_metadata.yml` is last, its presence (for v21+ runs) also means the forecasts metadata is complete. `all_forecasts_metadata.yml` is not part of the availability rule, since older dates do not have it. Readers must still check both folders, because dates written before v10 came from two separate scripts. Dates present in only one folder (for example, only one of the two pre-v10 scripts was run) are **not** available and must not be offered to users.
 
 **To find the dates,** list each folder with S3 `ListObjectsV2` using `Bucket=<space>` and `Prefix="<folder>/"`:
 
@@ -80,7 +81,7 @@ Since v10, one backend run computes everything first and then uploads all three 
 General behavior of every file:
 
 - **History.** Each date folder is a snapshot of one run. Comparing dates is valid (same keys, formats, and units within a contract version), but a date folder written under an older contract version keeps the format of that version.
-- **Non-atomic.** The three files are uploaded one after the other (forecasts, `.h5`, then `.yml`). The completion marker rule above prevents reading a half-uploaded date. During a same-day re-run, a date's files can briefly come from different runs.
+- **Non-atomic.** The files are uploaded one after the other (forecasts, forecasts metadata, `.h5`, then optimization metadata). The completion marker rule above prevents reading a half-uploaded date. During a same-day re-run, a date's files can briefly come from different runs.
 - **Manual cadence.** The backend is run by hand, so there is no guaranteed update schedule. The frontend should display the data dates (see below) so a stale dataset is visible, rather than assuming data is current.
 - **Content type and ACLs.** The backend sets none. Do not rely on the `Content-Type` of an object; decide how to parse from the key name.
 - **Not investment advice.** All values are backtested or modeled outputs of a hobby project. Any user-facing text must say so.
@@ -304,12 +305,110 @@ The frontend may adapt this wording, but it must keep its meaning: the model is 
 - **Walk-forward:** for each forecast date, an ARIMA model is refit on a sliding window of the preceding 20 business days of prices (log-transformed and differenced once), with orders `p` and `q` chosen from 0 to 1 and 0 to 1 (excluding 0,0) by RMSE and BIC rank on the window. The window slides one business day per row. Each window contains only NYSE trading sessions (since v15), so one model time step is one session; NYSE holidays are skipped, not treated as missing observations. Orders are scored by one-step-ahead forecasts on rolling 10-return sub-windows; since v17, a sub-window whose fit fails is left out of that candidate's score (an order whose fits all fail ranks last), and every sub-window holds 10 actual returns.
 - **Back to dollars:** the model forecasts a log return. The backend converts it to a price with `last_price × exp(forecasted log return)`, so `T_arima` is in the same units as `T`.
 - **Last row:** the final row is the first NYSE trading day after the latest available data. Its `T` values are **empty** because that day has not happened yet. Treat that row as the live forecast and the rows above it as the backtest.
-- **Rows** are unique by `pred_date` and sorted ascending. The number of rows is about one month of business days and is not fixed.
+- **Rows** are unique by `pred_date` and sorted ascending. Since v21 the backend models the last 41 trading sessions, which normally gives 21 rows: 20 backtest rows with actuals plus the live row. The count can be lower when data is missing, so do not hard-code it.
 - **Missing data** (since v20). Forecasts are made only from closes that are present. If a whole session is absent from the data, there is no row for the session after it, because a one-step-ahead forecast for that day would need the missing close; the row for the missing session itself has an empty `T`. If only one ticker's close is missing on a session, the next row keeps its `pred_date`, but that ticker's `T_arima` and order columns are empty, while its `T_naive` still uses the most recent observed close. Rows are always unique by `pred_date`. Because the order columns can be empty, a CSV reader may load them as floats; treat their non-empty values as whole numbers.
 
 ### Not included
 
-The file does **not** contain RMSE or other error metrics, or confidence intervals. The naive baseline is included since v19 (`T_naive`). The selected model orders are included: `T_arima_p` and `T_arima_q` since v16, `T_arima_d` since v18. If the frontend needs an error metric, compute it from the `T` and `T_arima` columns on rows where `T` is not empty, and state which metric and window it uses. If any of these should be uploaded, it needs a contract change (an additive one is preferred).
+The file does **not** contain error metrics or confidence intervals. The naive baseline is included since v19 (`T_naive`). The selected model orders are included: `T_arima_p` and `T_arima_q` since v16, `T_arima_d` since v18. Since v21, error metrics for both forecasts are in `all_forecasts_metadata.yml` (next section). Use those rather than computing metrics in the frontend, so every surface reports the same numbers.
+
+---
+
+## `all_forecasts_metadata.yml`
+
+**Folder:** `FSF_FRONT_END_TIME_SERIES_FOLDER`. **Key:** `<FSF_FRONT_END_TIME_SERIES_FOLDER>/YYYY-MM-DD/all_forecasts_metadata.yml`, in the same date folder as `all_forecasts.csv`. **Format:** YAML (block style, keys sorted alphabetically), UTF-8; parse with a safe YAML loader. *Added in v21; date folders written before v21 do not have it, so treat it as optional.*
+
+It describes the most recent forecasts in that date's `all_forecasts.csv`: the training window of the live forecast, and how accurate the ARIMA and naive forecasts were over the last 20 trading days with an actual close. The backend computes it from the CSV exactly as uploaded.
+
+**All keys are lowercase snake_case, including the ticker keys under `ticker_metrics`.** Ticker symbols are lowercased here (`xbi`, `qqq`, ...), unlike every other file, where they are uppercase. Match them with a case-insensitive comparison, e.g. `ticker.lower()`.
+
+### Example
+
+Illustrative values; the structure matches the backend's output.
+
+```yaml
+evaluation_window:
+  end_date: '2026-10-09'
+  start_date: '2026-09-11'
+  target_trading_days: 20
+forecast_window:
+  forecast_date: '2026-10-12'
+  horizon_trading_days: 1
+  training_window_end_date: '2026-10-09'
+  training_window_returns: 20
+  training_window_start_date: '2026-09-10'
+models:
+  arima:
+    d: 1
+    description: ARIMA(p, 0, q) on daily log returns, which is ARIMA(p, 1, q) on log prices
+    excluded_orders:
+    - - 0
+      - 0
+    order_selection: lowest average rank of one-step-ahead RMSE and mean BIC on rolling sub-windows of the training window
+    order_selection_subwindow_returns: 10
+    p_values:
+    - 0
+    - 1
+    q_values:
+    - 0
+    - 1
+  naive:
+    description: the most recent observed close (random walk)
+ticker_metrics:
+  xbi:
+    arima:
+      directional_accuracy: 0.55
+      mae: 1.21
+      mape: 1.32
+      n_directional: 20
+      rmse: 1.52
+    evaluation_end_date: '2026-10-09'
+    evaluation_start_date: '2026-09-11'
+    n_evaluated: 20
+    naive:
+      mae: 1.25
+      mape: 1.37
+      rmse: 1.58
+    relative_mae: 0.968
+    skill: 0.032
+units:
+  directional_accuracy: fraction
+  mae: usd_per_share
+  mape: percent
+  relative_mae: ratio
+  rmse: usd_per_share
+  skill: ratio
+```
+
+### Fields
+
+| Path | Type | Meaning |
+| --- | --- | --- |
+| `forecast_window.training_window_start_date` | string `YYYY-MM-DD` | First trading session of the live forecast's training window. |
+| `forecast_window.training_window_end_date` | string `YYYY-MM-DD` | Last session of that window, the latest close used. Equals the date folder. |
+| `forecast_window.forecast_date` | string `YYYY-MM-DD` | The date of the live forecast: the CSV's last `pred_date`, one NYSE trading day after `training_window_end_date`. |
+| `forecast_window.training_window_returns` | int | Daily log returns in each training window (`20`, so 21 closes). |
+| `forecast_window.horizon_trading_days` | int | Forecast horizon (`1`: one trading day ahead). |
+| `evaluation_window.target_trading_days` | int | Number of most recent days with an actual close that are scored (`20`). |
+| `evaluation_window.start_date`, `.end_date` | string `YYYY-MM-DD` or null | Earliest start and latest end of the per-ticker evaluation windows. Normally the same for every ticker. |
+| `units.*` | string | Units of each metric: `usd_per_share` (RMSE, MAE), `percent` (MAPE), `ratio` (relative MAE, skill), `fraction` (directional accuracy, from 0 to 1). |
+| `models.arima.*`, `models.naive.description` | mixed | How each forecast is made: the ARIMA order search (`p_values`, `q_values`, `excluded_orders`), `d`, the order-selection rule and its sub-window length, and the naive rule. These are taken from the backend's settings. |
+| `ticker_metrics.<ticker>.n_evaluated` | int | Days actually scored. Normally 20; fewer if a ticker's forecast or close was missing on some of the 20 days. Both models are always scored on the same days. |
+| `ticker_metrics.<ticker>.evaluation_start_date`, `.evaluation_end_date` | string `YYYY-MM-DD` or null | First and last of this ticker's 20 most recent days with an actual close. |
+| `ticker_metrics.<ticker>.arima.rmse`, `.naive.rmse` | float or null | Root mean squared error of the forecast against the actual close, **US dollars per share**. |
+| `ticker_metrics.<ticker>.arima.mae`, `.naive.mae` | float or null | Mean absolute error, **US dollars per share**. |
+| `ticker_metrics.<ticker>.arima.mape`, `.naive.mape` | float or null | Mean absolute percentage error, **in percent** (1.3 means 1.3 %). Scale-free, so it can be compared across tickers. |
+| `ticker_metrics.<ticker>.relative_mae` | float or null | ARIMA MAE ÷ naive MAE over the same days. **Below 1 means ARIMA was more accurate than the naive forecast.** `null` if naive MAE is 0 or nothing was scored. |
+| `ticker_metrics.<ticker>.skill` | float or null | `1 − relative_mae`. **Above 0 means ARIMA beat the naive forecast**, 0 means no better, below 0 means worse. `null` when `relative_mae` is. |
+| `ticker_metrics.<ticker>.arima.directional_accuracy` | float or null | Fraction of scored days on which ARIMA predicted the direction of the move from the previous close correctly (0 to 1). Days with no move are skipped; `null` if no day moved. The naive forecast predicts no move, so it has no directional accuracy. |
+| `ticker_metrics.<ticker>.arima.n_directional` | int | Days scored for directional accuracy. |
+
+### Notes
+
+- **Comparing tickers.** RMSE and MAE are in each ticker's own price units, so a $1 error on a $500 stock and on a $30 stock are not alike. Compare tickers with `mape`, `relative_mae`, or `skill`, which are scale-free.
+- **What "relative MAE" is.** It is the ratio of out-of-sample MAEs over the same 20 days. It is related to, but not the same as, Hyndman's MASE, which scales by the naive forecast's in-sample error. Label it "relative MAE" (or "skill" for `1 − relative_mae`), not "MASE".
+- **Small samples.** Twenty days is a short window, so the metrics are noisy and can change noticeably from day to day. Say so in user-facing text.
+- **Suggested wording near the metrics:** "Accuracy over the last 20 trading days, comparing each forecast with the actual close. Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller than the naive forecast's. RMSE and MAE are in dollars per share; MAPE is in percent and can be compared across tickers. Twenty days is a small sample, so treat these as indicative. Not investment advice."
 
 ---
 
@@ -321,7 +420,7 @@ The file does **not** contain RMSE or other error metrics, or confidence interva
 4. **Show data dates.** Display the selected date (equal to `date_updated.date_to`) so users can tell how current the data is.
 5. **Fail soft.** If a file is missing or does not parse, show an explanatory message instead of crashing. Missing or partial data is expected while a run is mid-upload.
 6. **Label units.** Daily versus annualized, and percent versus dollars, must be stated wherever a value is shown.
-7. **Date selection.** Offer only *available* dates (see "Which dates are available"), newest first, with the newest selected by default. Load all three files from the **same** date in both folders; never mix dates across files. Ignore keys whose segment after the folder is not a valid date, including stale objects directly under a folder from contract v8 and earlier.
+7. **Date selection.** Offer only *available* dates (see "Which dates are available"), newest first, with the newest selected by default. Load all files from the **same** date in both folders; never mix dates across files. Ignore keys whose segment after the folder is not a valid date, including stale objects directly under a folder from contract v8 and earlier.
 8. **Do not assume consecutive dates.** Runs are manual, so dates have gaps (weekends, holidays, days not run).
 
 ## Verification status
@@ -352,12 +451,14 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 - That the date folder equals `date_updated.date_to`, and the upload order (forecasts, `.h5`, then `optimization_metadata.yml`). The construction of the date part of the key and of local paths is covered by unit tests (`tests/test_layout.py`).
 - The v8 NYSE calendar behavior on real data (covered by unit tests in `tests/test_date_manager.py`).
+- `all_forecasts_metadata.yml` (v21) on real output. The metric formulas are covered by unit tests on hand-computed tables (`tests/test_metrics.py`), and the file's windows and upload order by `tests/test_pipeline.py`.
 - `NaN` entries in `efficient_frontier/xs` (inferred from the code for infeasible target returns). Readers must handle `NaN` regardless.
 
 ## Changelog
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 21 | 2026-10-15 | **Additive.** New file `all_forecasts_metadata.yml` next to `all_forecasts.csv` in every date folder: the live forecast's training window and forecast date, and, per ticker, RMSE, MAE and MAPE for ARIMA and naive forecasts over the last 20 trading days with an actual close, `relative_mae` (ARIMA MAE ÷ naive MAE), `skill` (1 − relative MAE), and ARIMA directional accuracy, plus units and a description of both models. All keys are lowercase snake_case, **including ticker keys** (`xbi`, not `XBI`). Upload order is now forecasts CSV, forecasts metadata, `.h5`, optimization metadata (still last); the availability rule is unchanged. To score 20 days, the ARIMA input grows from 40 to 41 trading sessions, so `all_forecasts.csv` normally has 21 rows (20 backtest + live) instead of 20; columns are unchanged. Frontend must: read the metrics from this file (match tickers case-insensitively) instead of computing RMSE itself; treat the file as optional for older dates; use the suggested wording; label `relative_mae` as "relative MAE" or show `skill`, not "MASE". |
 | 20 | 2026-10-15 | Bug fix, non-breaking for complete data (no change to keys, column names, or units; with no missing closes the output is unchanged). Two gaps in the price data were mishandled. (1) If a whole session was missing, two rows got the same `pred_date` (the day of the gap) and the session after it had no row, violating "rows are unique by `pred_date`"; training windows are now built on the dates actually present, so `pred_date` is always unique, and the session after a whole missing session has no row. (2) If one ticker's close was missing, its next `T_arima` came out empty by accident (the back-transform multiplied by the missing price); it is now deliberately empty, as are that row's order columns (`T_arima_p`, `T_arima_d`, `T_arima_q`), and `T_naive` still uses the most recent observed close. `T_arima` and the order columns are now documented as possibly empty. Added "Missing data" under "How the forecasts are produced". Frontend: handle empty `T_arima` and empty (or float-typed) order columns on such rows. |
 | 19 | 2026-10-15 | **Additive** (no existing column renamed, removed, or changed). `all_forecasts.csv` gains a float column `T_naive` per ticker: the naive (random walk) baseline forecast, equal to the most recent observed close before `pred_date` (normally the previous trading day's close), computed from the same data the row's ARIMA model saw. Present on every row. Each ticker's columns are now ordered `T_arima`, `T_arima_p`, `T_arima_d`, `T_arima_q`, `T_naive`, `T` (order is still not part of the contract). Added the `_naive` suffix rule and a naive-forecast sentence to the suggested wording. No error metrics are uploaded. Frontend: treat `T_naive` as optional (absent before v19); optionally plot it and show the wording. |
 | 18 | 2026-10-15 | **Additive** (no existing column renamed, removed, or changed). `all_forecasts.csv` gains an integer column `T_arima_d` per ticker, always `1`, so that `(T_arima_p, T_arima_d, T_arima_q)` is the model's full `(p, d, q)` on log prices: ARIMA(p, 0, q) on log returns is ARIMA(p, 1, q) on log prices. Each ticker's columns are now ordered `T_arima`, `T_arima_p`, `T_arima_d`, `T_arima_q`, `T` (order is still not part of the contract). Added "Suggested user-facing wording" for the forecast tooltip and the text near the plot. Frontend: the exact-suffix rule now includes `_arima_d`; the column is optional (absent before v18); show the wording if displaying model orders. |
