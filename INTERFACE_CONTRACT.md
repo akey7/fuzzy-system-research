@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 21 |
+| **Contract version** | 22 |
 | **Last updated** | 2026-10-15 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -84,7 +84,11 @@ General behavior of every file:
 - **Non-atomic.** The files are uploaded one after the other (forecasts, forecasts metadata, `.h5`, then optimization metadata). The completion marker rule above prevents reading a half-uploaded date. During a same-day re-run, a date's files can briefly come from different runs.
 - **Manual cadence.** The backend is run by hand, so there is no guaranteed update schedule. The frontend should display the data dates (see below) so a stale dataset is visible, rather than assuming data is current.
 - **Content type and ACLs.** The backend sets none. Do not rely on the `Content-Type` of an object; decide how to parse from the key name.
-- **Not investment advice.** All values are backtested or modeled outputs of a hobby project. Any user-facing text must say so.
+- **Not investment advice: one disclaimer, shown once.** Display this wording exactly once, at the bottom of the UI:
+
+  > Not investment advice. Every value shown is a backtest or model output computed from historical prices, and none of it predicts future results or recommends any investment.
+
+  It covers every file in this contract. Do not repeat it in plot captions, tooltips, or metric descriptions; the suggested wording elsewhere in this document deliberately leaves it out.
 
 ## Shared conventions
 
@@ -282,7 +286,7 @@ Do **not** treat every column *containing* `_arima` as a forecast column, becaus
 
 ### Suggested user-facing wording
 
-The frontend may adapt this wording, but it must keep its meaning: the model is fit on log returns, the orders are stated on log prices, the orders can change daily, and forecasts are not investment advice. It assumes readers know what ARIMA(p, d, q) means.
+The frontend may adapt this wording, but it must keep its meaning: the model is fit on log returns, the orders are stated on log prices, and the orders can change daily. It assumes readers know what ARIMA(p, d, q) means.
 
 **Tooltip on a forecast point** (fill in the row's `T_arima_p`, `T_arima_d`, `T_arima_q`):
 
@@ -296,8 +300,6 @@ The frontend may adapt this wording, but it must keep its meaning: the model is 
 > **Why d = 1.** The model is fit to daily log returns as ARIMA(p, 0, q). Turning prices into returns is one round of differencing, so the same model on log prices is ARIMA(p, 1, q). The tooltip shows the log-price version.
 >
 > **Naive forecast:** today's close = yesterday's close. A model adds value only if its errors are smaller than the naive baseline.
->
-> These are modeled values for illustration, not investment advice.
 
 ### How the forecasts are produced
 
@@ -408,7 +410,7 @@ units:
 - **Comparing tickers.** RMSE and MAE are in each ticker's own price units, so a $1 error on a $500 stock and on a $30 stock are not alike. Compare tickers with `mape`, `relative_mae`, or `skill`, which are scale-free.
 - **What "relative MAE" is.** It is the ratio of out-of-sample MAEs over the same 20 days. It is related to, but not the same as, Hyndman's MASE, which scales by the naive forecast's in-sample error. Label it "relative MAE" (or "skill" for `1 − relative_mae`), not "MASE".
 - **Small samples.** Twenty days is a short window, so the metrics are noisy and can change noticeably from day to day. Say so in user-facing text.
-- **Suggested wording near the metrics:** "Accuracy over the last 20 trading days, comparing each forecast with the actual close. Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller than the naive forecast's. RMSE and MAE are in dollars per share; MAPE is in percent and can be compared across tickers. Twenty days is a small sample, so treat these as indicative. Not investment advice."
+- **Suggested wording near the metrics:** "Accuracy over the last 20 trading days, comparing each forecast with the actual close. Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller than the naive forecast's. RMSE and MAE are in dollars per share; MAPE is in percent and can be compared across tickers. Twenty days is a small sample, so treat these as indicative."
 
 ---
 
@@ -458,6 +460,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 22 | 2026-10-15 | Documentation only; no change to files, keys, or values. The investment-advice disclaimer is consolidated: the frontend shows one fixed wording ("Not investment advice. Every value shown is a backtest or model output computed from historical prices, and none of it predicts future results or recommends any investment.") once, at the bottom of the UI, and it is no longer repeated in the suggested plot, tooltip, and metrics wording. Frontend: keep the single footer disclaimer with this wording and drop any repeats. |
 | 21 | 2026-10-15 | **Additive.** New file `all_forecasts_metadata.yml` next to `all_forecasts.csv` in every date folder: the live forecast's training window and forecast date, and, per ticker, RMSE, MAE and MAPE for ARIMA and naive forecasts over the last 20 trading days with an actual close, `relative_mae` (ARIMA MAE ÷ naive MAE), `skill` (1 − relative MAE), and ARIMA directional accuracy, plus units and a description of both models. All keys are lowercase snake_case, **including ticker keys** (`xbi`, not `XBI`). Upload order is now forecasts CSV, forecasts metadata, `.h5`, optimization metadata (still last); the availability rule is unchanged. To score 20 days, the ARIMA input grows from 40 to 41 trading sessions, so `all_forecasts.csv` normally has 21 rows (20 backtest + live) instead of 20; columns are unchanged. Frontend must: read the metrics from this file (match tickers case-insensitively) instead of computing RMSE itself; treat the file as optional for older dates; use the suggested wording; label `relative_mae` as "relative MAE" or show `skill`, not "MASE". |
 | 20 | 2026-10-15 | Bug fix, non-breaking for complete data (no change to keys, column names, or units; with no missing closes the output is unchanged). Two gaps in the price data were mishandled. (1) If a whole session was missing, two rows got the same `pred_date` (the day of the gap) and the session after it had no row, violating "rows are unique by `pred_date`"; training windows are now built on the dates actually present, so `pred_date` is always unique, and the session after a whole missing session has no row. (2) If one ticker's close was missing, its next `T_arima` came out empty by accident (the back-transform multiplied by the missing price); it is now deliberately empty, as are that row's order columns (`T_arima_p`, `T_arima_d`, `T_arima_q`), and `T_naive` still uses the most recent observed close. `T_arima` and the order columns are now documented as possibly empty. Added "Missing data" under "How the forecasts are produced". Frontend: handle empty `T_arima` and empty (or float-typed) order columns on such rows. |
 | 19 | 2026-10-15 | **Additive** (no existing column renamed, removed, or changed). `all_forecasts.csv` gains a float column `T_naive` per ticker: the naive (random walk) baseline forecast, equal to the most recent observed close before `pred_date` (normally the previous trading day's close), computed from the same data the row's ARIMA model saw. Present on every row. Each ticker's columns are now ordered `T_arima`, `T_arima_p`, `T_arima_d`, `T_arima_q`, `T_naive`, `T` (order is still not part of the contract). Added the `_naive` suffix rule and a naive-forecast sentence to the suggested wording. No error metrics are uploaded. Frontend: treat `T_naive` as optional (absent before v19); optionally plot it and show the wording. |
