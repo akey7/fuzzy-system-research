@@ -1,5 +1,6 @@
 import os
 from typing import Protocol
+import numpy as np
 import pandas as pd
 from fuzzy_system_research.data.date_manager import DateManager
 from fuzzy_system_research.forecasting.arima_models import (
@@ -24,42 +25,47 @@ class ArimaWalkForward:
         """
         self.dm = DateManager()
 
-    def training_window_start_end(self, start_timestamp, end_timestamp, num_days=20):
+    def training_window_start_end(
+        self, index: pd.DatetimeIndex, num_days: int = 20
+    ) -> list[list[pd.Timestamp]]:
         """
-        Return a list of lists, with each inner list containing two pd.Timestamps.
-        The first timestamp is the start of a business day, and the second timestamp
-        is the end of a business day. These ranges are used to specify intervals
-        to train ARIMA and Holt-Winters models on in a walk-forward method.
+        Return the walk-forward training windows as [start, end] timestamp
+        pairs. Each window spans num_days + 1 consecutive dates of index (so
+        num_days returns), and consecutive windows slide by one date.
+
+        Windows are built from the dates actually present in the data, not
+        from the calendar, so every window ends on an observed date and no two
+        windows end on the same one. With complete data (every NYSE session
+        present) this is one window per session from the (num_days + 1)-th
+        onward. If a whole session is missing from the data, no window ends on
+        it, so there is no one-step-ahead forecast for the session after it
+        (that would need the missing close).
 
         Parameters
         ----------
-        start_timestamp : pd.Timestamp
-            Start day of range.
-
-        end_timestamp : pd.Timestamp
-            End of the day range.
+        index : pd.DatetimeIndex
+            Sorted dates of the price data, one per observed trading session.
 
         num_days : int, optional
-            Number of days in the specified ranges. If not specified, defaults
-            to 20 business days.
+            Number of returns in each window. Defaults to 20, about a month
+            of trading days.
 
         Returns
         -------
         List[List[pd.Timestamp, pd.Timestamp]]
-            Returns timestamp ranges.
+            Returns timestamp ranges, in date order.
+
+        Raises
+        ------
+        ValueError
+            If index has num_days dates or fewer.
         """
-        timestamp_ranges = [
-            [start_timestamp, self.dm.future_business_day(start_timestamp, 20)]
-        ]
-        while timestamp_ranges[-1][1] < pd.Timestamp(end_timestamp.date()):
-            next_start_timestamp = self.dm.future_business_day(timestamp_ranges[-1][0], 1)
-            next_end_timestamp = self.dm.future_business_day(
-                next_start_timestamp, num_days
+        if len(index) <= num_days:
+            raise ValueError(
+                f"Need more than {num_days} dates for a {num_days}-day window, "
+                f"got {len(index)}."
             )
-            timestamp_ranges.append([next_start_timestamp, next_end_timestamp])
-        # for timestamp_range in timestamp_ranges:
-        #     print(timestamp_range)
-        return timestamp_ranges
+        return [[index[end - num_days], index[end]] for end in range(num_days, len(index))]
 
     def train_arima_models(
         self,
@@ -81,6 +87,13 @@ class ArimaWalkForward:
         Each window is resampled to the NYSE trading calendar, so one model
         time step is one trading session: holidays are skipped rather than
         treated as missing observations.
+
+        Missing data (see training_window_start_end()): windows end only on
+        dates present in df, so pred_date values are unique. If one ticker's
+        close is missing on a window's last date, that ticker's T_arima and
+        order columns are left empty on that row (no two-step-ahead forecast
+        is substituted), while T_naive still uses the most recent observed
+        close.
 
         Parameters
         ----------
@@ -104,45 +117,64 @@ class ArimaWalkForward:
         -------
         pd.DataFrame
             The forecasts after each model training, indexed by pred_date.
-            For every ticker T there are five columns, in this order:
+            For every ticker T there are six columns, in this order:
             T_arima (forecast price); T_arima_p, T_arima_d, and T_arima_q
-            (integer order of the model that made the row's forecast, stated
-            on log prices: ARIMA(p, 0, q) on log returns is ARIMA(p, 1, q) on
-            log prices, so T_arima_d is always PRICE_DIFFERENCING_ORDER = 1);
-            and T (the actual price, missing on the final row).
+            (nullable integer order of the model that made the row's
+            forecast, stated on log prices: ARIMA(p, 0, q) on log returns is
+            ARIMA(p, 1, q) on log prices, so T_arima_d is always
+            PRICE_DIFFERENCING_ORDER = 1; all three are empty where T_arima
+            is);
+            T_naive (naive baseline forecast: the most recent observed close
+            before pred_date, i.e. the previous trading day's close when no
+            data is missing); and T (the actual price, missing on the final
+            row).
         """
         all_forecast_dfs = []
-        timestamp_ranges = self.training_window_start_end(
-            df.index[0],
-            df.index[-1],
-            n_business_days,
-        )
+        timestamp_ranges = self.training_window_start_end(df.index, n_business_days)
         for ticker in df.columns:
             forecast_rows = []
+            pred_key = f"{ticker}_arima"
+            order_keys = [f"{pred_key}_p", f"{pred_key}_d", f"{pred_key}_q"]
             for start_timestamp, end_timestamp in timestamp_ranges:
-                am = ArimaModels(n_workers=n_workers)
                 ticker_ts = df[ticker]
                 ticker_ts = ticker_ts.loc[start_timestamp:end_timestamp]
                 # One row per NYSE trading session. NYSE holidays get no row
                 # (pandas "B" would insert them as missing values), while a
                 # session missing from the data still appears as NaN.
                 ticker_ts = ticker_ts.asfreq(self.dm.cbd)
-                pred_date, pred, (p, q) = am.fit(
-                    ticker_ts, max_p=max_p, max_q=max_q, train_len=10
-                )
-                pred_key = f"{ticker}_arima"
+                if pd.isna(ticker_ts.iloc[-1]):
+                    # This ticker's close at the forecast origin is missing, so
+                    # there is no one-step-ahead ARIMA forecast: leave the
+                    # forecast and its order empty rather than forecast two
+                    # steps ahead from an older close.
+                    pred_date = self.dm.future_business_day(ticker_ts.index[-1], 1)
+                    pred, p, d, q = np.nan, pd.NA, pd.NA, pd.NA
+                else:
+                    am = ArimaModels(n_workers=n_workers)
+                    pred_date, pred, (p, q) = am.fit(
+                        ticker_ts, max_p=max_p, max_q=max_q, train_len=10
+                    )
+                    d = PRICE_DIFFERENCING_ORDER
+                # Naive (random walk) baseline: the most recent observed close
+                # in the same window the ARIMA model saw, so both forecasts
+                # use exactly the same information.
+                naive = float(ticker_ts.dropna().iloc[-1])
                 pred_dict = {
                     "pred_date": pred_date,
                     pred_key: pred,
-                    f"{pred_key}_p": p,
-                    f"{pred_key}_d": PRICE_DIFFERENCING_ORDER,
-                    f"{pred_key}_q": q,
+                    order_keys[0]: p,
+                    order_keys[1]: d,
+                    order_keys[2]: q,
+                    f"{ticker}_naive": naive,
                 }
                 print(pred_dict)
                 forecast_rows.append(pred_dict)
             forecast_df = (
                 pd.DataFrame(forecast_rows).set_index("pred_date").sort_index()
             )
+            # Nullable integers: whole numbers, empty where there is no forecast.
+            forecast_df[order_keys] = forecast_df[order_keys].astype("Int64")
+            forecast_df[pred_key] = forecast_df[pred_key].astype(float)
             forecast_start_timestamp = forecast_df.index[0]
             forecast_end_timestamp = forecast_df.index[-1]
             forecast_df[ticker] = df.loc[
