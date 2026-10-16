@@ -1,7 +1,13 @@
 import os
+import sys
+from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
+from functools import partial
 from typing import Protocol
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from fuzzy_system_research.data.date_manager import DateManager
 from fuzzy_system_research.forecasting.arima_models import (
     PRICE_DIFFERENCING_ORDER,
@@ -24,6 +30,136 @@ ARIMA_MAX_P = 2
 ARIMA_MAX_Q = 2
 # Returns in each rolling sub-window used to score candidate orders.
 ORDER_SELECTION_SUBWINDOW_RETURNS = 10
+# Environment variables that set how many threads the numeric libraries under
+# NumPy and SciPy may start (OpenMP, OpenBLAS, MKL, Apple Accelerate,
+# numexpr). Worker processes get one thread each, so N workers use about N
+# CPUs; the matrices in these small ARIMA fits gain nothing from more.
+SINGLE_THREAD_ENV_VARS = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+)
+# ProcessPoolExecutor refuses more than 61 workers on Windows.
+WINDOWS_MAX_WORKERS = 61
+
+
+def default_worker_count(cpu_count: int | None = None) -> int:
+    """
+    Default number of worker processes for ARIMA training: half the logical
+    CPUs available to this process, and at least 1.
+
+    Logical CPUs count every hardware thread: on an Intel CPU with
+    hyper-threading that is two per physical core, and on Apple silicon it is
+    every core, performance and efficiency alike (10 on a base M4, so 5
+    workers).
+
+    Parameters
+    ----------
+    cpu_count : int, optional
+        Logical CPUs to assume. Defaults to os.process_cpu_count(), which
+        respects any limit on the CPUs this process may use, falling back to
+        os.cpu_count(), and to 1 if neither is known.
+
+    Returns
+    -------
+    int
+        max(1, cpu_count // 2).
+    """
+    if cpu_count is None:
+        cpu_count = os.process_cpu_count() or os.cpu_count() or 1
+    return max(1, cpu_count // 2)
+
+
+@contextmanager
+def _single_threaded_numeric_libraries() -> Iterator[None]:
+    """
+    Set every variable in SINGLE_THREAD_ENV_VARS to "1" inside the block and
+    restore the previous values (or absence) afterwards. Worker processes
+    started inside the block inherit the setting and read it when they import
+    NumPy. The current process is not affected, because its numeric libraries
+    are already loaded.
+    """
+    saved = {name: os.environ.get(name) for name in SINGLE_THREAD_ENV_VARS}
+    os.environ.update({name: "1" for name in SINGLE_THREAD_ENV_VARS})
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _fit_window(
+    ticker_ts: pd.Series, max_p: int, max_q: int
+) -> tuple[pd.Timestamp, float, tuple[int, int]]:
+    """
+    Fit and forecast one walk-forward training window with ArimaModels.fit().
+    Defined at module level so that worker processes can unpickle it.
+    """
+    return ArimaModels().fit(
+        ticker_ts,
+        max_p=max_p,
+        max_q=max_q,
+        train_len=ORDER_SELECTION_SUBWINDOW_RETURNS,
+    )
+
+
+def fit_windows(
+    windows: list[pd.Series], max_p: int, max_q: int, n_workers: int
+) -> list[tuple[pd.Timestamp, float, tuple[int, int]]]:
+    """
+    Fit every training window and return the results in the order of
+    windows. The windows are independent (each uses only its own prices), so
+    they can be fit in any order or at the same time; the results do not
+    depend on n_workers.
+
+    With n_workers == 1 (or at most one window) everything runs in this
+    process. Otherwise one ProcessPoolExecutor with n_workers processes is
+    started for the whole call (capped at the number of windows, and at
+    WINDOWS_MAX_WORKERS on Windows), with each worker's numeric libraries
+    limited to one thread (see SINGLE_THREAD_ENV_VARS).
+
+    Parameters
+    ----------
+    windows : list[pd.Series]
+        Prices of each training window, one entry per NYSE trading session,
+        each ending on a present (non-missing) close.
+
+    max_p, max_q : int
+        Exclusive upper bounds on p and q (see ArimaModels.fit()).
+
+    n_workers : int
+        Number of worker processes, at least 1.
+
+    Returns
+    -------
+    list[tuple[pd.Timestamp, float, tuple[int, int]]]
+        ArimaModels.fit()'s (pred_date, forecast price, (p, q)) for each
+        window.
+
+    Raises
+    ------
+    ValueError
+        If n_workers is less than 1.
+    """
+    if n_workers < 1:
+        raise ValueError(f"n_workers must be at least 1, got {n_workers}.")
+    fit = partial(_fit_window, max_p=max_p, max_q=max_q)
+    progress = {"total": len(windows), "desc": "ARIMA windows", "unit": "window"}
+    if n_workers == 1 or len(windows) <= 1:
+        return [fit(ticker_ts) for ticker_ts in tqdm(windows, **progress)]
+    max_workers = min(n_workers, len(windows))
+    if sys.platform == "win32":
+        max_workers = min(max_workers, WINDOWS_MAX_WORKERS)
+    with (
+        _single_threaded_numeric_libraries(),
+        ProcessPoolExecutor(max_workers=max_workers) as pool,
+    ):
+        return list(tqdm(pool.map(fit, windows), **progress))
 
 
 class ArimaWalkForward:
@@ -32,11 +168,20 @@ class ArimaWalkForward:
     over sliding windows of trading days. Does no downloading or uploading.
     """
 
-    def __init__(self):
+    def __init__(self, n_workers: int | None = None):
         """
         Instantiate with the DateManager used to build the training windows.
+
+        Parameters
+        ----------
+        n_workers : int, optional
+            Number of worker processes for train_arima_models(). Defaults to
+            None, which means default_worker_count() (half the logical CPUs),
+            worked out when the models are trained. 1 fits everything in this
+            process.
         """
         self.dm = DateManager()
+        self.n_workers = n_workers
 
     def training_window_start_end(
         self, index: pd.DatetimeIndex, num_days: int = 20
@@ -86,12 +231,15 @@ class ArimaWalkForward:
         n_business_days=TRAINING_WINDOW_RETURNS,
         max_p=ARIMA_MAX_P,
         max_q=ARIMA_MAX_Q,
-        n_workers=6,
     ):
         """
         Trains ARIMA models along each training window implementing a
         walk-forward backtesting scheme of model evaluation. Each training
         seeks the optimal (p, q) values for the best performance.
+
+        All (ticker, window) fits are independent, so they run together in
+        one pool of self.n_workers processes (see fit_windows()). The output
+        does not depend on the number of workers.
 
         This function passes prices, not returns: the single differencing
         step (prices to daily log returns) happens inside ArimaModels.fit(),
@@ -124,9 +272,6 @@ class ArimaWalkForward:
         max_q : int, optional
             Exclusive upper bound on q. Defaults to ARIMA_MAX_Q (2), so q is 0 or 1.
 
-        n_workers : int, optional
-            Number of cores to dedicate to training models. Defaults to 6
-
         Returns
         -------
         pd.DataFrame
@@ -143,19 +288,42 @@ class ArimaWalkForward:
             data is missing); and T (the actual price, missing on the final
             row).
         """
-        all_forecast_dfs = []
         timestamp_ranges = self.training_window_start_end(df.index, n_business_days)
+        # Every ticker's training windows, in output order.
+        windows_by_ticker: dict[str, list[pd.Series]] = {}
         for ticker in df.columns:
-            forecast_rows = []
-            pred_key = f"{ticker}_arima"
-            order_keys = [f"{pred_key}_p", f"{pred_key}_d", f"{pred_key}_q"]
-            for start_timestamp, end_timestamp in timestamp_ranges:
-                ticker_ts = df[ticker]
-                ticker_ts = ticker_ts.loc[start_timestamp:end_timestamp]
+            windows_by_ticker[ticker] = [
                 # One row per NYSE trading session. NYSE holidays get no row
                 # (pandas "B" would insert them as missing values), while a
                 # session missing from the data still appears as NaN.
-                ticker_ts = ticker_ts.asfreq(self.dm.cbd)
+                df[ticker].loc[start_timestamp:end_timestamp].asfreq(self.dm.cbd)
+                for start_timestamp, end_timestamp in timestamp_ranges
+            ]
+        # Fit every window whose last close is present, all at once. The
+        # results come back in the same order, so they are consumed below in
+        # the order the windows are visited.
+        n_workers = (
+            self.n_workers if self.n_workers is not None else default_worker_count()
+        )
+        fits = iter(
+            fit_windows(
+                [
+                    ticker_ts
+                    for windows in windows_by_ticker.values()
+                    for ticker_ts in windows
+                    if not pd.isna(ticker_ts.iloc[-1])
+                ],
+                max_p=max_p,
+                max_q=max_q,
+                n_workers=n_workers,
+            )
+        )
+        all_forecast_dfs = []
+        for ticker, windows in windows_by_ticker.items():
+            forecast_rows = []
+            pred_key = f"{ticker}_arima"
+            order_keys = [f"{pred_key}_p", f"{pred_key}_d", f"{pred_key}_q"]
+            for ticker_ts in windows:
                 if pd.isna(ticker_ts.iloc[-1]):
                     # This ticker's close at the forecast origin is missing, so
                     # there is no one-step-ahead ARIMA forecast: leave the
@@ -164,13 +332,7 @@ class ArimaWalkForward:
                     pred_date = self.dm.future_business_day(ticker_ts.index[-1], 1)
                     pred, p, d, q = np.nan, pd.NA, pd.NA, pd.NA
                 else:
-                    am = ArimaModels(n_workers=n_workers)
-                    pred_date, pred, (p, q) = am.fit(
-                        ticker_ts,
-                        max_p=max_p,
-                        max_q=max_q,
-                        train_len=ORDER_SELECTION_SUBWINDOW_RETURNS,
-                    )
+                    pred_date, pred, (p, q) = next(fits)
                     d = PRICE_DIFFERENCING_ORDER
                 # Naive (random walk) baseline: the most recent observed close
                 # in the same window the ARIMA model saw, so both forecasts

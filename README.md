@@ -36,6 +36,7 @@ Options:
 | `--no-upload` | Write the `output/` files but upload nothing. Use this to check a run without touching any bucket. |
 | `--retrain-arima` | Retrain the ARIMA models even if forecasts for the as-of date are cached. |
 | `--refresh-data` | Download prices again even if today's download is cached. |
+| `--workers N` | Number of worker processes for ARIMA training. Defaults to half the logical CPUs (for example 8 on a 16-thread Intel CPU, 5 on a 10-core M4). `--workers 1` trains everything in one process. The forecasts do not depend on this setting. |
 
 Nothing is uploaded unless every step succeeds. If a later step fails, the ARIMA forecasts already written to `output/` are reused on the next run.
 

@@ -43,7 +43,7 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 
 | File | Role | Run directly? | Uploads? |
 | --- | --- | --- | --- |
-| `scripts/run_optimization_and_time_series.py` | The single backend entry point: parses `--no-upload`, `--retrain-arima`, `--refresh-data`, loads `.env`, calls `pipeline.run_pipeline()` | Yes | Yes |
+| `scripts/run_optimization_and_time_series.py` | The single backend entry point: parses `--no-upload`, `--retrain-arima`, `--refresh-data`, `--workers`, loads `.env`, calls `pipeline.run_pipeline()` | Yes | Yes |
 | `scripts/ticker_download_to_csv.py` | Download one symbol from Massive.com to CSV | Yes | No |
 | `src/fuzzy_system_research/data/ticker_download_manager.py` | Download new data or retrieve cached data | No | No |
 | `src/fuzzy_system_research/data/date_manager.py` | Date and business-day calculations (NYSE calendar via `exchange_calendars`) | No | No |
@@ -51,7 +51,7 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 | `src/fuzzy_system_research/optimization/portfolio.py` | Simulation, min-variance, efficient frontier, risk-free rate, max-Sharpe, annualization helpers | No | No |
 | `src/fuzzy_system_research/optimization/workflow.py` | `run_portfolio_optimization()` → `OptimizationResult` (annualized); `.h5`/`.yml` writers | No | No |
 | `src/fuzzy_system_research/forecasting/arima_models.py` | ARIMA training on price data | No | No |
-| `src/fuzzy_system_research/forecasting/ticker_predict.py` | `ArimaWalkForward` (walk-forward ARIMA) and `load_or_train_forecasts()` (per-date cache) | No | No |
+| `src/fuzzy_system_research/forecasting/ticker_predict.py` | `ArimaWalkForward` (walk-forward ARIMA, all windows fit in one `ProcessPoolExecutor` sized by `default_worker_count()`, half the logical CPUs) and `load_or_train_forecasts()` (per-date cache) | No | No |
 | `src/fuzzy_system_research/forecasting/metrics.py` | Pure forecast-accuracy metrics (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) over the last 20 scored days; builds and writes `all_forecasts_metadata.yml` | No | No |
 | `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (252 sessions) → ARIMA on the last 41 → forecast metrics → optimization → uploads (csv, forecast metrics yml, h5, optimization yml last) only if all succeed; dependencies injectable for tests | No | Yes |
 | `src/fuzzy_system_research/storage/layout.py` | Pure helpers for dated `output/` paths and bucket keys; the single source of truth for both layouts | No | No |

@@ -120,6 +120,7 @@ def run_pipeline(
     upload: bool = True,
     retrain_arima: bool = False,
     refresh_data: bool = False,
+    arima_workers: int | None = None,
     *,
     tdm: TickerDownloadManager | None = None,
     trainer: ForecastTrainer | None = None,
@@ -153,6 +154,11 @@ def run_pipeline(
 
     refresh_data : bool, optional
         If True, download prices again even if today's download is cached.
+
+    arima_workers : int, optional
+        Number of worker processes for ARIMA training. Defaults to None,
+        which means half the logical CPUs (see default_worker_count() in
+        forecasting/ticker_predict.py). Ignored when trainer is given.
 
     tdm, trainer, uploader, risk_free_rate_getter, dm : optional
         Dependencies, defaulting to the real implementations. Tests pass
@@ -193,7 +199,9 @@ def run_pipeline(
         arima_window_df,
         forecasts_path,
         retrain=retrain_arima,
-        trainer=trainer,
+        trainer=(
+            trainer if trainer is not None else ArimaWalkForward(n_workers=arima_workers)
+        ),
     )
 
     # 2b. Forecast metrics, from the CSV exactly as written (also for cached

@@ -1,6 +1,4 @@
 import warnings
-from dask.distributed import Client, as_completed
-from tqdm import tqdm
 import pandas as pd
 import numpy as np
 from numpy.linalg import LinAlgError
@@ -16,17 +14,13 @@ PRICE_DIFFERENCING_ORDER = 1
 
 
 class ArimaModels:
-    def __init__(self, n_workers=6):
+    def __init__(self):
         """
         Initialize a new ArimaModels instance to manage ARIMA models.
 
-        Parameters
-        ----------
-        n_workers : int, optional
-            Number of workers to allocate to fitting ARIMA models.
-            Optional and defaults to 6.
+        Everything here runs in the calling process. Parallelism lives one
+        level up, in ArimaWalkForward, which fits many windows at once.
         """
-        self.n_workers = n_workers
         self.train_result = None
         self.final_model = None
 
@@ -49,9 +43,8 @@ class ArimaModels:
 
     def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
         """
-        Fit many ARIMA models to find the best p and q values.
-        Fitting is parallelized across the number of workers specified
-        by n_workers during instantiation. The prices in original_ts are
+        Fit many ARIMA models to find the best p and q values, one
+        candidate order after another in this process. The prices in original_ts are
         converted to log returns by to_log_returns(), the only differencing
         step, before fitting the models. max_p, max_q, and train_len
         are passed to the other fitting functions as appropriate. It also
@@ -116,11 +109,11 @@ class ArimaModels:
         """
         return np.log(original_ts).diff().iloc[1:]
 
-    def train_arima(self, ts, max_p=5, d=0, max_q=5, train_len=120, n_workers=6):
+    def train_arima(self, ts, max_p=5, d=0, max_q=5, train_len=120):
         """
-        Initiate training runs of ARIMA models with ps and qs under the
-        given maximums to find the best pa and q values for the modeling
-        the given time series.
+        Train and score ARIMA models for every p and q under the given
+        maximums (excluding (0, 0)), one after another, to find the best p
+        and q values for modeling the given time series.
 
         Parameters
         ----------
@@ -136,10 +129,6 @@ class ArimaModels:
 
         train_len : int, optional
             Then length of the training set. Defaults to 120.
-
-        n_workers : int, optional
-            Number of cores to use for parallel evaluation of models.
-            Defaults to 6.
 
         Returns
         -------
@@ -161,14 +150,7 @@ class ArimaModels:
                         "q": q,
                     }
                 )
-        dask_client = Client(n_workers=n_workers)
-        futures = [dask_client.submit(self.p_d_q_fit, task) for task in tasks]
-        arima_fit_results = []
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Processing", unit="task"
-        ):
-            arima_fit_results.append(future.result())
-        dask_client.close()
+        arima_fit_results = [self.p_d_q_fit(task) for task in tasks]
         arima_fit_df = pd.DataFrame(arima_fit_results)
         arima_fit_df.set_index(["p", "q"], inplace=True)
         return arima_fit_df
@@ -186,8 +168,7 @@ class ArimaModels:
         with another step's model. If every fit fails, rmse, mean_aic, and
         mean_bic are infinite so the order ranks last in select_order().
 
-        Meant to be used by the train_arima function to perform parallelizable
-        tasks on cores.
+        Called by train_arima once per candidate order.
 
         Parameters
         ----------

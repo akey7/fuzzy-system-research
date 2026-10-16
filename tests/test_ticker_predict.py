@@ -3,8 +3,10 @@ Tests for ArimaWalkForward.train_arima_models() date handling.
 
 ARIMA fitting is replaced by a stub that keeps the real date logic
 (ArimaModels.next_trading_day, i.e. the NYSE calendar) and
-returns a dummy forecast, so these tests run fast, without Dask, and check
-only how forecast rows are dated and assembled. In-memory only.
+returns a dummy forecast, so these tests run fast and check only how forecast
+rows are dated and assembled. The stub replaces ArimaModels only in this
+process, so the default worker count is forced to 1 (no worker processes).
+In-memory only.
 """
 
 import numpy as np
@@ -37,8 +39,8 @@ class StubArimaModels:
     fitted: list[pd.Series] = []
     orders: list[tuple[str, pd.Timestamp, tuple[int, int]]] = []
 
-    def __init__(self, n_workers=6):
-        self._dates = ArimaModels(n_workers=n_workers)
+    def __init__(self):
+        self._dates = ArimaModels()
 
     def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
         StubArimaModels.fitted.append(original_ts)
@@ -53,6 +55,8 @@ def stub_arima(monkeypatch):
     StubArimaModels.fitted = []
     StubArimaModels.orders = []
     monkeypatch.setattr(ticker_predict, "ArimaModels", StubArimaModels)
+    # Worker processes would import the real ArimaModels, not the stub.
+    monkeypatch.setattr(ticker_predict, "default_worker_count", lambda: 1)
 
 
 def nyse_prices(last_session: str, n_sessions: int = 40) -> pd.DataFrame:
@@ -149,7 +153,7 @@ def test_missing_trading_session_still_shows_as_missing():
 
 
 def test_statsmodels_arima_fits_and_forecasts_on_nyse_frequency():
-    # The real model (no Dask): an ARIMA on log returns indexed by NYSE
+    # The real model: an ARIMA on log returns indexed by NYSE
     # sessions must fit and produce a finite one-step forecast.
     import warnings
 
@@ -422,3 +426,44 @@ def test_empty_orders_round_trip_through_csv(tmp_path):
     filled = loaded["AAA_arima_p"].dropna()
     assert (filled == filled.round()).all()  # Whole numbers everywhere else.
     assert loaded["BBB_arima_p"].notna().all()
+
+
+# Worker count
+
+
+@pytest.fixture
+def recorded_workers(monkeypatch):
+    """Record the n_workers passed to fit_windows, but fit in this process."""
+    recorded = []
+    in_process_fit_windows = ticker_predict.fit_windows
+
+    def recording_fit_windows(windows, max_p, max_q, n_workers):
+        recorded.append(n_workers)
+        return in_process_fit_windows(windows, max_p, max_q, n_workers=1)
+
+    monkeypatch.setattr(ticker_predict, "fit_windows", recording_fit_windows)
+    return recorded
+
+
+def test_explicit_worker_count_is_passed_to_the_pool(recorded_workers):
+    ArimaWalkForward(n_workers=3).train_arima_models(nyse_prices("2026-04-02"))
+    assert recorded_workers == [3]
+
+
+def test_default_worker_count_is_used_when_none_is_given(monkeypatch, recorded_workers):
+    monkeypatch.setattr(ticker_predict, "default_worker_count", lambda: 5)
+    ArimaWalkForward().train_arima_models(nyse_prices("2026-04-02"))
+    assert recorded_workers == [5]
+
+
+def test_all_windows_are_fit_in_one_call_in_output_order(recorded_workers):
+    prices = nyse_prices("2026-04-02")
+    prices.loc[GAP, "AAA"] = np.nan  # This window is skipped, not fit.
+    forecasts = ArimaWalkForward().train_arima_models(prices)
+    assert len(recorded_workers) == 1  # One pool for the whole run.
+    # Each forecast is matched with its own window: the stub's forecast is
+    # STUB_UPLIFT x that window's last close, which is the row's naive value.
+    for ticker in ("AAA", "BBB"):
+        fitted = forecasts[f"{ticker}_arima"].dropna()
+        naive = forecasts.loc[fitted.index, f"{ticker}_naive"]
+        np.testing.assert_allclose(fitted, STUB_UPLIFT * naive)

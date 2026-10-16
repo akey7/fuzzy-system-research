@@ -3,7 +3,7 @@ Tests for fuzzy_system_research.forecasting.arima_models: the single
 differencing step (to_log_returns) and the rolling-origin evaluation of one
 (p, q) candidate (p_d_q_fit), including how failed fits are handled.
 
-p_d_q_fit is called directly (no Dask). Most tests replace statsmodels'
+p_d_q_fit is called directly. Most tests replace statsmodels'
 ARIMA with a fake whose fits fail on chosen steps; one test uses the real
 model. In-memory only.
 """
@@ -150,7 +150,7 @@ def test_all_fits_failing_scores_infinite_and_ranks_last(monkeypatch, returns):
     assert ArimaModels().select_order(train_result) == (1, 0)
 
 
-# p_d_q_fit with the real statsmodels ARIMA (no Dask)
+# p_d_q_fit with the real statsmodels ARIMA
 
 
 def test_p_d_q_fit_with_real_arima_returns_finite_scores(returns):
