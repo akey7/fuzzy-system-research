@@ -4,6 +4,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from massive import RESTClient
 from fuzzy_system_research.data.date_manager import DateManager
+from fuzzy_system_research.storage.layout import ensure_parent_dir
 
 
 class TickerDownloadManager:
@@ -116,7 +117,9 @@ class TickerDownloadManager:
         Downloads are cached in the download folder in a file named
         "Tickers YYYY-MM-DD.csv" using today's date. A cache file from an
         earlier day is never reused, because its data would end before the
-        most recent trading day.
+        most recent trading day. The download folder (and any missing
+        parent folders) is created when the cache file is written, if it does
+        not exist yet.
 
         Parameters
         ----------
@@ -154,5 +157,5 @@ class TickerDownloadManager:
         long_df = self.download_tickers(
             self.tickers, date_from=date_from, date_to=date_to
         )
-        long_df.to_csv(long_df_filename, index=True)
+        long_df.to_csv(ensure_parent_dir(long_df_filename), index=True)
         return long_df, date_from, date_to

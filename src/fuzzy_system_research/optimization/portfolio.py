@@ -5,6 +5,7 @@ import numpy as np
 from scipy.optimize import minimize
 import pandas_datareader as web
 from dateutil.relativedelta import relativedelta
+from fuzzy_system_research.storage.layout import ensure_parent_dir
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -367,7 +368,8 @@ def get_risk_free_rate(dm) -> dict:
     recent day with a published rate (see latest_risk_free_rate()). Caches
     the result in input/Risk Free Rate YYYY-MM-DD.json (today's date) so that
     repeated calls on the same day do not download again. A cached file whose
-    daily rate is missing or not finite is ignored and replaced.
+    daily rate is missing or not finite is ignored and replaced. The input/
+    folder is created when the cache is written, if it does not exist yet.
 
     Parameters
     ----------
@@ -402,7 +404,7 @@ def get_risk_free_rate(dm) -> dict:
     tb3m_df = web.DataReader("DTB3", "fred", start_date, end_date)
     risk_free_rate_data = latest_risk_free_rate(tb3m_df)
     print(risk_free_rate_data)
-    with open(risk_free_rate_filename, "w", encoding="utf-8") as f:
+    with open(ensure_parent_dir(risk_free_rate_filename), "w", encoding="utf-8") as f:
         json.dump(risk_free_rate_data, f, indent=4)
     return risk_free_rate_data
 
