@@ -12,6 +12,7 @@ import pytest
 
 from fuzzy_system_research.storage.layout import (
     ALL_FORECASTS_FILENAME,
+    ALL_FORECASTS_METADATA_FILENAME,
     OPTIMIZATION_METADATA_FILENAME,
     OPTIMIZATION_PLOT_DATA_FILENAME,
     OUTPUT_ROOT,
@@ -32,6 +33,7 @@ def test_contract_file_names():
     assert OPTIMIZATION_METADATA_FILENAME == "optimization_metadata.yml"
     assert OPTIMIZATION_PLOT_DATA_FILENAME == "portfolio_optimization_plot_data.h5"
     assert ALL_FORECASTS_FILENAME == "all_forecasts.csv"
+    assert ALL_FORECASTS_METADATA_FILENAME == "all_forecasts_metadata.yml"
 
 
 # as_of_date_str

@@ -10,6 +10,7 @@ import yaml
 
 from conftest import make_long_prices
 from fuzzy_system_research.data.prices import pivot_close_wide
+from fuzzy_system_research.optimization import workflow
 from fuzzy_system_research.optimization.workflow import (
     OptimizationResult,
     build_optimization_metadata,
@@ -143,3 +144,63 @@ def test_metadata_yaml_round_trip_keeps_dates_as_strings(result, tmp_path):
     assert isinstance(loaded["date_updated"]["date_to"], str)
     assert isinstance(loaded["risk_free_rate"]["risk_free_rate_date"], str)
     assert loaded["optimum_portfolio"]["risk"] == pytest.approx(result.max_sharpe_risk)
+
+
+# Optimality. With 3 assets the 4/N weight cap is 133 %, so it never binds and
+# the unconstrained random portfolios are all feasible for the optimizer.
+
+
+def test_max_sharpe_beats_every_simulated_and_frontier_portfolio(result):
+    # SLSQP converges to ~1e-6 on the daily objective (~1e-5 annualized), and
+    # the synthetic Sharpe ratio may be negative, so use an absolute margin.
+    tol = 1e-4 * (1 + abs(result.sharpe_ratio))
+    sim_sharpe = (result.simulated_returns - ANNUAL_RF) / result.simulated_risks
+    assert sim_sharpe.max() <= result.sharpe_ratio + tol
+    finite = ~np.isnan(result.frontier_risks)
+    frontier_sharpe = (
+        result.frontier_returns[finite] - ANNUAL_RF
+    ) / result.frontier_risks[finite]
+    assert frontier_sharpe.max() <= result.sharpe_ratio + tol
+
+
+def test_no_simulated_portfolio_dominates_the_frontier(result):
+    # Each frontier point is the least risky portfolio with that target
+    # return, and the frontier is the upper (rising) branch, so no portfolio
+    # with at least that return may have less risk. Tolerance allows for SLSQP
+    # convergence.
+    finite = ~np.isnan(result.frontier_risks)
+    targets = result.frontier_returns[finite]
+    risks = result.frontier_risks[finite]
+    sim_r = result.simulated_returns[:, None]
+    sim_s = result.simulated_risks[:, None]
+    dominates = (sim_r >= targets[None, :]) & (sim_s < risks[None, :] * (1 - 1e-3))
+    assert not dominates.any()
+
+
+def test_weight_cap_binds_with_many_assets():
+    # 8 assets: cap = 4/8 = 50 % per asset.
+    tickers = ["A", "B", "C", "D", "E", "F", "G", "H"]
+    wide8 = pivot_close_wide(make_long_prices(tickers=tickers, n_sessions=80, seed=11))
+    res = run_portfolio_optimization(wide8, DAILY_RF, rng=np.random.default_rng(0))
+    weights = np.array(list(res.max_sharpe_weights_pct.values()))
+    assert len(weights) == 8
+    assert (weights <= 50 + 1e-4).all()
+    assert (weights >= -1e-6).all()
+    assert weights.sum() == pytest.approx(100, abs=1e-3)
+
+
+def test_tangency_line_survives_nan_first_frontier_point(wide, monkeypatch):
+    # Regression test for the v5 fix: max() on a list starting with NaN
+    # returned NaN and made the whole tangency line NaN; nanmax must not.
+    real = workflow.calc_efficient_frontier
+
+    def frontier_with_leading_nan(*args, **kwargs):
+        risks, targets = real(*args, **kwargs)
+        return [np.nan] + list(risks[1:]), targets
+
+    monkeypatch.setattr(workflow, "calc_efficient_frontier", frontier_with_leading_nan)
+    res = run_portfolio_optimization(wide, DAILY_RF, rng=np.random.default_rng(0))
+    assert np.isnan(res.frontier_risks[0])
+    assert np.isfinite(res.tangency_risks).all()
+    assert np.isfinite(res.tangency_returns).all()
+    assert res.tangency_risks[-1] == pytest.approx(np.nanmax(res.frontier_risks))

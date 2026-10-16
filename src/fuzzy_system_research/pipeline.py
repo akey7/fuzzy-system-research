@@ -1,15 +1,17 @@
 """
 One backend run: download (or load cached) prices, ARIMA forecasts (or load
-cached), portfolio optimization, then upload all three frontend files.
+cached), forecast metrics, portfolio optimization, then upload all four
+frontend files.
 
 Order of operations:
 1. Price data: one download of OPTIMIZATION_LOOKBACK_SESSIONS trading days,
    cached per run date in input/annual/.
 2. ARIMA: trained on the last ARIMA_WINDOW_SESSIONS sessions of that data,
-   cached as output/time_series/<as-of date>/all_forecasts.csv.
+   cached as output/time_series/<as-of date>/all_forecasts.csv. Metrics on
+   those forecasts are written next to it as all_forecasts_metadata.yml.
 3. Optimization: written to output/portfolio_optimization/<as-of date>/.
 4. Upload, only after every step above succeeded, to the one frontend Space
-   under <folder>/<as-of date>/: all_forecasts.csv, then
+   under <folder>/<as-of date>/: all_forecasts.csv, all_forecasts_metadata.yml,
    portfolio_optimization_plot_data.h5, then optimization_metadata.yml last,
    so the metadata file marks a complete date (see INTERFACE_CONTRACT.md).
 
@@ -21,13 +23,20 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Protocol
 import numpy as np
+import pandas as pd
 from fuzzy_system_research.data.date_manager import DateManager
 from fuzzy_system_research.data.prices import last_n_sessions, pivot_close_wide
 from fuzzy_system_research.data.ticker_download_manager import TickerDownloadManager
 from fuzzy_system_research.forecasting.ticker_predict import (
     ARIMA_WINDOW_SESSIONS,
+    TRAINING_WINDOW_RETURNS,
+    ArimaWalkForward,
     ForecastTrainer,
     load_or_train_forecasts,
+)
+from fuzzy_system_research.forecasting.metrics import (
+    build_forecast_metadata,
+    write_forecast_metadata,
 )
 from fuzzy_system_research.optimization.portfolio import get_risk_free_rate
 from fuzzy_system_research.optimization.workflow import (
@@ -38,6 +47,7 @@ from fuzzy_system_research.optimization.workflow import (
 )
 from fuzzy_system_research.storage.layout import (
     ALL_FORECASTS_FILENAME,
+    ALL_FORECASTS_METADATA_FILENAME,
     OPTIMIZATION_METADATA_FILENAME,
     OPTIMIZATION_PLOT_DATA_FILENAME,
     OUTPUT_ROOT,
@@ -82,6 +92,7 @@ class PipelineResult:
 
     as_of: str
     forecasts_path: str
+    forecasts_metadata_path: str
     plot_data_path: str
     metadata_path: str
     trained_arima: bool
@@ -177,12 +188,30 @@ def run_pipeline(
     forecasts_path = local_output_path(
         TIME_SERIES, as_of, ALL_FORECASTS_FILENAME, output_root
     )
+    arima_window_df = last_n_sessions(wide_df, ARIMA_WINDOW_SESSIONS)
     trained_arima = load_or_train_forecasts(
-        last_n_sessions(wide_df, ARIMA_WINDOW_SESSIONS),
+        arima_window_df,
         forecasts_path,
         retrain=retrain_arima,
         trainer=trainer,
     )
+
+    # 2b. Forecast metrics, from the CSV exactly as written (also for cached
+    # forecasts). The live forecast's training window is the last window.
+    forecasts_df = pd.read_csv(forecasts_path, index_col="pred_date", parse_dates=True)
+    window_start, window_end = ArimaWalkForward().training_window_start_end(
+        arima_window_df.index, TRAINING_WINDOW_RETURNS
+    )[-1]
+    forecasts_metadata_path = ensure_parent_dir(
+        local_output_path(
+            TIME_SERIES, as_of, ALL_FORECASTS_METADATA_FILENAME, output_root
+        )
+    )
+    write_forecast_metadata(
+        build_forecast_metadata(forecasts_df, tdm.tickers, window_start, window_end),
+        forecasts_metadata_path,
+    )
+    print(f"Saved {forecasts_metadata_path}")
 
     # 3. Portfolio optimization
     risk_free_rate_data = risk_free_rate_getter(dm)
@@ -208,13 +237,18 @@ def run_pipeline(
     )
     print(f"Saved {metadata_path}")
 
-    # 4. Uploads, metadata last (it marks the date as complete)
+    # 4. Uploads, optimization metadata last (it marks the date as complete)
     uploaded: list[str] = []
     if not upload:
         print("Skipping uploads (--no-upload).")
     else:
         for local_path, folder, filename in (
             (forecasts_path, time_series_folder, ALL_FORECASTS_FILENAME),
+            (
+                forecasts_metadata_path,
+                time_series_folder,
+                ALL_FORECASTS_METADATA_FILENAME,
+            ),
             (plot_data_path, portfolio_folder, OPTIMIZATION_PLOT_DATA_FILENAME),
             (metadata_path, portfolio_folder, OPTIMIZATION_METADATA_FILENAME),
         ):
@@ -225,6 +259,7 @@ def run_pipeline(
     return PipelineResult(
         as_of=as_of,
         forecasts_path=forecasts_path,
+        forecasts_metadata_path=forecasts_metadata_path,
         plot_data_path=plot_data_path,
         metadata_path=metadata_path,
         trained_arima=trained_arima,

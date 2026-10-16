@@ -29,6 +29,7 @@ OUTPUT_KINDS = (PORTFOLIO_OPTIMIZATION, TIME_SERIES)
 OPTIMIZATION_METADATA_FILENAME = "optimization_metadata.yml"
 OPTIMIZATION_PLOT_DATA_FILENAME = "portfolio_optimization_plot_data.h5"
 ALL_FORECASTS_FILENAME = "all_forecasts.csv"
+ALL_FORECASTS_METADATA_FILENAME = "all_forecasts_metadata.yml"
 
 _DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
