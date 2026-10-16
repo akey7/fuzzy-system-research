@@ -182,3 +182,6 @@ output/
 
 # Claude Code local config
 .claude/settings.local.json
+
+# VSCode junk
+.vscode/*
