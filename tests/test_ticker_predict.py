@@ -41,6 +41,7 @@ class StubArimaModels:
 
     def __init__(self):
         self._dates = ArimaModels()
+        self.order_tie_broken = False
 
     def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
         StubArimaModels.fitted.append(original_ts)
@@ -240,13 +241,79 @@ def test_select_order_picks_best_average_rank_and_returns_ints():
 def test_select_order_weighs_rmse_and_bic_equally():
     results = order_results(
         {
-            (0, 1): (0.010, -10.0),  # Best RMSE, worst BIC -> (1 + 3) / 2 = 2.0
-            (1, 0): (0.030, -30.0),  # Worst RMSE, best BIC -> (3 + 1) / 2 = 2.0
-            (1, 1): (0.020, -20.0),  # Middle on both -> 2.0
+            (0, 1): (0.030, -30.0),  # Worst RMSE, best BIC -> (3 + 1) / 2 = 2.0
+            (1, 0): (0.020, -20.0),  # Middle on both -> 2.0
+            (1, 1): (0.010, -10.0),  # Best RMSE, worst BIC -> (1 + 3) / 2 = 2.0
         }
     )
-    # A three-way tie goes to the first row.
+    # A three-way tie goes to the lowest RMSE, not to the first row.
+    assert ArimaModels().select_order(results) == (1, 1)
+    assert ArimaModels().order_was_tie_broken(results)
+
+
+def test_select_order_two_way_tie_goes_to_lower_rmse():
+    results = order_results(
+        {
+            (0, 1): (0.030, -10.0),  # Ranks: rmse 3, bic 3 -> 3.0
+            (1, 1): (0.020, -40.0),  # Ranks: rmse 2, bic 1 -> 1.5 (tied, first)
+            (1, 0): (0.010, -20.0),  # Ranks: rmse 1, bic 2 -> 1.5 (tied)
+        }
+    )
+    # (1, 1) comes first, but (1, 0) has the lower RMSE.
+    assert ArimaModels().select_order(results) == (1, 0)
+    assert ArimaModels().order_was_tie_broken(results)
+
+
+def test_select_order_equal_rmse_tie_goes_to_fewer_parameters():
+    inf = float("inf")
+    results = order_results(
+        {
+            (1, 1): (inf, inf),  # Every fit failed: ranks 2.5, 2.5 -> 2.5
+            (0, 1): (inf, inf),  # Every fit failed: ranks 2.5, 2.5 -> 2.5
+            (1, 0): (0.010, -10.0),  # Ranks 1, 1 -> 1.0 (best)
+        }
+    )
+    assert ArimaModels().select_order(results) == (1, 0)
+    assert not ArimaModels().order_was_tie_broken(results)
+    # Without the clear winner, the failed candidates tie on rank and RMSE,
+    # and the one with fewer parameters wins.
+    failed_only = results.drop(index=(1, 0))
+    assert ArimaModels().select_order(failed_only) == (0, 1)
+    assert ArimaModels().order_was_tie_broken(failed_only)
+
+
+def test_select_order_equal_rmse_and_parameters_tie_goes_to_lower_p():
+    results = order_results(
+        {
+            (1, 0): (0.010, -10.0),
+            (0, 1): (0.010, -10.0),  # Identical scores, same p + q.
+        }
+    )
     assert ArimaModels().select_order(results) == (0, 1)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_select_order_does_not_depend_on_row_order(seed):
+    results = order_results(
+        {
+            (0, 1): (0.030, -30.0),
+            (1, 0): (0.020, -20.0),
+            (1, 1): (0.010, -10.0),  # Three-way tie at 2.0; lowest RMSE wins.
+        }
+    )
+    shuffled = results.sample(frac=1, random_state=seed)
+    assert ArimaModels().select_order(shuffled) == (1, 1)
+
+
+def test_order_was_tie_broken_is_false_with_a_unique_best():
+    results = order_results(
+        {
+            (0, 1): (0.030, -50.0),  # Average 2.5
+            (1, 0): (0.010, -40.0),  # Average 2.0
+            (1, 1): (0.020, -60.0),  # Average 1.5 (unique best)
+        }
+    )
+    assert not ArimaModels().order_was_tie_broken(results)
 
 
 def test_d_column_is_one_on_every_row_and_survives_csv(tmp_path):

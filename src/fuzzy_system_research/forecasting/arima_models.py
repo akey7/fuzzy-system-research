@@ -23,6 +23,7 @@ class ArimaModels:
         """
         self.train_result = None
         self.final_model = None
+        self.order_tie_broken = None
 
     def next_trading_day(self, date: pd.Timestamp) -> pd.Timestamp:
         """
@@ -48,7 +49,9 @@ class ArimaModels:
         converted to log returns by to_log_returns(), the only differencing
         step, before fitting the models. max_p, max_q, and train_len
         are passed to the other fitting functions as appropriate. It also
-        sets instance attributes with the training results and final model.
+        sets instance attributes with the training results, the final model,
+        and order_tie_broken (whether select_order() needed its tie-break
+        rules; see order_was_tie_broken()).
 
         This assumes one index entry per NYSE trading session (as produced
         by asfreq(DateManager().cbd)) and predicts the next NYSE trading day
@@ -82,6 +85,7 @@ class ArimaModels:
             ts, max_p=max_p, max_q=max_q, train_len=train_len, d=0
         )
         best_order = self.select_order(self.train_result)
+        self.order_tie_broken = self.order_was_tie_broken(self.train_result)
         self.final_model = self.best_arima_model(ts, self.train_result)
         pred_date = self.next_trading_day(ts.index[-1])
         pred = self.predict(original_ts)
@@ -235,12 +239,46 @@ class ArimaModels:
         }
         return result
 
+    @staticmethod
+    def average_rank(train_result: pd.DataFrame) -> pd.Series:
+        """
+        Each candidate's average of its rank by out-of-sample RMSE and its
+        rank by mean BIC (rank 1 is the lowest value; equal values share the
+        average of their ranks). Lower is better. Pure function.
+
+        Parameters
+        ----------
+        train_result : pd.DataFrame
+            Training results from train_arima(), indexed by (p, q), with at
+            least "rmse" and "mean_bic" columns.
+
+        Returns
+        -------
+        pd.Series
+            Average rank, indexed like train_result.
+        """
+        return train_result[["rmse", "mean_bic"]].rank().mean(axis=1)
+
     def select_order(self, train_result: pd.DataFrame) -> tuple[int, int]:
         """
         Choose the (p, q) order with the best combined rank: each candidate
         is ranked by out-of-sample RMSE and by mean BIC (lower is better for
-        both), the two ranks are averaged, and the lowest average wins. Ties
-        go to the first candidate in train_result's row order. Pure function.
+        both), the two ranks are averaged (see average_rank()), and the
+        lowest average wins. Pure function.
+
+        With few candidates, equal average ranks are common (e.g. ranks
+        (1, 2) and (2, 1) both average 1.5). Ties are broken, in this order,
+        by:
+
+        1. lower out-of-sample RMSE (the forecasting objective; BIC's
+           complexity penalty has already counted once in the average),
+        2. fewer parameters, p + q (parsimony, e.g. when two candidates'
+           fits all failed and both RMSEs are infinite),
+        3. lower p (only so that the result never depends on row order).
+
+        The result therefore does not depend on the row order of
+        train_result. Ranks ignore the size of differences, so an RMSE lower
+        by a tiny amount still ranks ahead; no tolerance is applied.
 
         Parameters
         ----------
@@ -253,10 +291,42 @@ class ArimaModels:
         tuple[int, int]
             The selected (p, q).
         """
-        best_p, best_q = (
-            train_result.rank().loc[:, ["rmse", "mean_bic"]].mean(axis=1).idxmin()
+        p = train_result.index.get_level_values("p").to_numpy()
+        q = train_result.index.get_level_values("q").to_numpy()
+        # Column names must differ from the index level names "p" and "q",
+        # or pandas cannot tell which one a sort key refers to.
+        candidates = pd.DataFrame(
+            {
+                "average_rank": self.average_rank(train_result),
+                "rmse": train_result["rmse"],
+                "n_params": p + q,
+                "ar_order": p,
+            },
+            index=train_result.index,
         )
+        best_p, best_q = candidates.sort_values(
+            ["average_rank", "rmse", "n_params", "ar_order"], kind="stable"
+        ).index[0]
         return int(best_p), int(best_q)
+
+    def order_was_tie_broken(self, train_result: pd.DataFrame) -> bool:
+        """
+        Whether select_order() needed its tie-break rules for train_result,
+        i.e. more than one candidate shares the lowest average rank. Pure
+        function.
+
+        Parameters
+        ----------
+        train_result : pd.DataFrame
+            Training results from train_arima() (see average_rank()).
+
+        Returns
+        -------
+        bool
+            True if two or more candidates tie for the lowest average rank.
+        """
+        average_rank = self.average_rank(train_result)
+        return bool((average_rank == average_rank.min()).sum() > 1)
 
     def best_arima_model(self, ts, train_result):
         """

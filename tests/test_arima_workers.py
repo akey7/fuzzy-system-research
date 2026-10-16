@@ -92,7 +92,10 @@ def test_pool_gives_the_same_results_in_the_same_order_as_one_process():
     in_process = fit_windows(windows, max_p=2, max_q=2, n_workers=1)
     pooled = fit_windows(windows, max_p=2, max_q=2, n_workers=2)
     assert len(pooled) == len(windows)
-    for (date_1, pred_1, order_1), (date_2, pred_2, order_2) in zip(in_process, pooled):
+    for (date_1, pred_1, order_1, tie_1), (date_2, pred_2, order_2, tie_2) in zip(
+        in_process, pooled
+    ):
         assert date_2 == date_1
         assert order_2 == order_1
+        assert tie_2 == tie_1
         assert pred_2 == pytest.approx(pred_1, rel=1e-9)

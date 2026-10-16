@@ -95,22 +95,25 @@ def _single_threaded_numeric_libraries() -> Iterator[None]:
 
 def _fit_window(
     ticker_ts: pd.Series, max_p: int, max_q: int
-) -> tuple[pd.Timestamp, float, tuple[int, int]]:
+) -> tuple[pd.Timestamp, float, tuple[int, int], bool]:
     """
-    Fit and forecast one walk-forward training window with ArimaModels.fit().
-    Defined at module level so that worker processes can unpickle it.
+    Fit and forecast one walk-forward training window with ArimaModels.fit(),
+    and report whether its order was decided by a tie-break. Defined at
+    module level so that worker processes can unpickle it.
     """
-    return ArimaModels().fit(
+    am = ArimaModels()
+    pred_date, pred, order = am.fit(
         ticker_ts,
         max_p=max_p,
         max_q=max_q,
         train_len=ORDER_SELECTION_SUBWINDOW_RETURNS,
     )
+    return pred_date, pred, order, bool(am.order_tie_broken)
 
 
 def fit_windows(
     windows: list[pd.Series], max_p: int, max_q: int, n_workers: int
-) -> list[tuple[pd.Timestamp, float, tuple[int, int]]]:
+) -> list[tuple[pd.Timestamp, float, tuple[int, int], bool]]:
     """
     Fit every training window and return the results in the order of
     windows. The windows are independent (each uses only its own prices), so
@@ -137,9 +140,10 @@ def fit_windows(
 
     Returns
     -------
-    list[tuple[pd.Timestamp, float, tuple[int, int]]]
+    list[tuple[pd.Timestamp, float, tuple[int, int], bool]]
         ArimaModels.fit()'s (pred_date, forecast price, (p, q)) for each
-        window.
+        window, followed by whether that order was decided by a tie-break
+        (ArimaModels.order_tie_broken).
 
     Raises
     ------
@@ -305,19 +309,23 @@ class ArimaWalkForward:
         n_workers = (
             self.n_workers if self.n_workers is not None else default_worker_count()
         )
-        fits = iter(
-            fit_windows(
-                [
-                    ticker_ts
-                    for windows in windows_by_ticker.values()
-                    for ticker_ts in windows
-                    if not pd.isna(ticker_ts.iloc[-1])
-                ],
-                max_p=max_p,
-                max_q=max_q,
-                n_workers=n_workers,
-            )
+        fit_results = fit_windows(
+            [
+                ticker_ts
+                for windows in windows_by_ticker.values()
+                for ticker_ts in windows
+                if not pd.isna(ticker_ts.iloc[-1])
+            ],
+            max_p=max_p,
+            max_q=max_q,
+            n_workers=n_workers,
         )
+        n_tie_broken = sum(tie_broken for *_, tie_broken in fit_results)
+        print(
+            f"ARIMA order decided by a tie-break in {n_tie_broken} of "
+            f"{len(fit_results)} windows."
+        )
+        fits = iter(fit_results)
         all_forecast_dfs = []
         for ticker, windows in windows_by_ticker.items():
             forecast_rows = []
@@ -332,7 +340,7 @@ class ArimaWalkForward:
                     pred_date = self.dm.future_business_day(ticker_ts.index[-1], 1)
                     pred, p, d, q = np.nan, pd.NA, pd.NA, pd.NA
                 else:
-                    pred_date, pred, (p, q) = next(fits)
+                    pred_date, pred, (p, q), _ = next(fits)
                     d = PRICE_DIFFERENCING_ORDER
                 # Naive (random walk) baseline: the most recent observed close
                 # in the same window the ARIMA model saw, so both forecasts

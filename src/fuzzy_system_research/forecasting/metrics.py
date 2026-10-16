@@ -176,6 +176,10 @@ def models_block() -> dict:
                 "rolling sub-windows of the training window"
             ),
             "order_selection_subwindow_returns": ORDER_SELECTION_SUBWINDOW_RETURNS,
+            "order_selection_tie_break": (
+                "lower one-step-ahead RMSE, then fewer parameters (p + q), "
+                "then lower p"
+            ),
         },
         "naive": {
             "description": "the most recent observed close (random walk)",
