@@ -52,7 +52,8 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 | `src/fuzzy_system_research/optimization/workflow.py` | `run_portfolio_optimization()` → `OptimizationResult` (annualized); `.h5`/`.yml` writers | No | No |
 | `src/fuzzy_system_research/forecasting/arima_models.py` | ARIMA training on price data | No | No |
 | `src/fuzzy_system_research/forecasting/ticker_predict.py` | `ArimaWalkForward` (walk-forward ARIMA) and `load_or_train_forecasts()` (per-date cache) | No | No |
-| `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (252 sessions) → ARIMA on the last 40 → optimization → uploads (csv, h5, yml last) only if all succeed; dependencies injectable for tests | No | Yes |
+| `src/fuzzy_system_research/forecasting/metrics.py` | Pure forecast-accuracy metrics (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) over the last 20 scored days; builds and writes `all_forecasts_metadata.yml` | No | No |
+| `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (252 sessions) → ARIMA on the last 41 → forecast metrics → optimization → uploads (csv, forecast metrics yml, h5, optimization yml last) only if all succeed; dependencies injectable for tests | No | Yes |
 | `src/fuzzy_system_research/storage/layout.py` | Pure helpers for dated `output/` paths and bucket keys; the single source of truth for both layouts | No | No |
 | `src/fuzzy_system_research/storage/s3_uploader.py` | S3/Spaces upload helper | No | Used by others |
 

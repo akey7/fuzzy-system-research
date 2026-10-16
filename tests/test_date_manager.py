@@ -72,14 +72,14 @@ def test_create_business_day_range_skips_good_friday(dm):
     assert list(days) == list(expected)
 
 
-def test_arima_next_business_day_is_nyse_and_keeps_time():
+def test_arima_next_trading_day_is_nyse_and_keeps_time():
     # Forecast dates carry a fixed 17:00 time label that must be preserved.
     am = ArimaModels()
     friday_before = pd.Timestamp("2026-10-09 17:00:00")
-    assert am.next_business_day_skip_holidays(friday_before) == pd.Timestamp(
+    assert am.next_trading_day(friday_before) == pd.Timestamp(
         "2026-10-12 17:00:00"
     )
     thursday_before_good_friday = pd.Timestamp("2026-04-02 17:00:00")
-    assert am.next_business_day_skip_holidays(
+    assert am.next_trading_day(
         thursday_before_good_friday
     ) == pd.Timestamp("2026-04-06 17:00:00")
