@@ -66,7 +66,7 @@ class TickerDownloadManager:
 
         delay: int, optional
             Seconds to wait between successive API calls for the tickers.
-            If not specifed defaults to 10 seconds.
+            If not specifed defaults to 5 seconds.
 
         Returns
         -------
