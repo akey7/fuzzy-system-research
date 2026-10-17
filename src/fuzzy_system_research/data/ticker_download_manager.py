@@ -48,7 +48,7 @@ class TickerDownloadManager:
         else:
             self.tickers = tickers
 
-    def download_tickers(self, tickers, date_from, date_to, delay=10):
+    def download_tickers(self, tickers, date_from, date_to, delay=5):
         """
         Gets ticker data from Massive.com between the given dates, inclusive
         of the ending date.
