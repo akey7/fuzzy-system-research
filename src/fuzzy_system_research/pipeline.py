@@ -4,12 +4,14 @@ cached), forecast metrics, portfolio optimization, then upload all four
 frontend files.
 
 Order of operations:
-1. Price data: one download of OPTIMIZATION_LOOKBACK_SESSIONS trading days,
-   cached per run date in input/annual/.
+1. Price data: one download of PRICE_DOWNLOAD_SESSIONS trading days, cached
+   per run date in input/annual/. A cached download too short for the
+   steps below is downloaded again once.
 2. ARIMA: trained on the last ARIMA_WINDOW_SESSIONS sessions of that data,
    cached as output/time_series/<as-of date>/all_forecasts.csv. Metrics on
    those forecasts are written next to it as all_forecasts_metadata.yml.
-3. Optimization: written to output/portfolio_optimization/<as-of date>/.
+3. Optimization: on the last OPTIMIZATION_LOOKBACK_SESSIONS sessions, written
+   to output/portfolio_optimization/<as-of date>/.
 4. Upload, only after every step above succeeded, to the one frontend Space
    under <folder>/<as-of date>/: all_forecasts.csv, all_forecasts_metadata.yml,
    portfolio_optimization_plot_data.h5, then optimization_metadata.yml last,
@@ -60,8 +62,16 @@ from fuzzy_system_research.storage.layout import (
 )
 from fuzzy_system_research.storage.s3_uploader import BUCKET_NAME_ENV, S3Uploader
 
-# Trading sessions of price data downloaded for each run (about one year).
+# Trading sessions of price data the portfolio optimization uses (one year).
 OPTIMIZATION_LOOKBACK_SESSIONS = 252
+# Trading sessions every run needs: enough for both the optimization and the
+# walk-forward ARIMA (ARIMA_WINDOW_SESSIONS = 272).
+REQUIRED_SESSIONS = max(OPTIMIZATION_LOOKBACK_SESSIONS, ARIMA_WINDOW_SESSIONS)
+# Extra sessions requested from the API beyond REQUIRED_SESSIONS, so that an
+# off-by-one in counting sessions, or a session missing from the data, does
+# not leave the run short.
+PRICE_DOWNLOAD_MARGIN_SESSIONS = 5
+PRICE_DOWNLOAD_SESSIONS = REQUIRED_SESSIONS + PRICE_DOWNLOAD_MARGIN_SESSIONS
 
 PRICE_DOWNLOAD_FOLDER = os.path.join("input", "annual")
 
@@ -154,6 +164,9 @@ def run_pipeline(
 
     refresh_data : bool, optional
         If True, download prices again even if today's download is cached.
+        Even when False, a cached download with fewer than
+        REQUIRED_SESSIONS sessions (e.g. one written before the ARIMA window
+        grew) is downloaded again once.
 
     arima_workers : int, optional
         Number of worker processes for ARIMA training. Defaults to None,
@@ -183,10 +196,25 @@ def run_pipeline(
     tdm = tdm if tdm is not None else TickerDownloadManager(PRICE_DOWNLOAD_FOLDER)
     dm = dm if dm is not None else DateManager()
     long_df, start_date, end_date = tdm.get_latest_tickers(
-        days_in_past=OPTIMIZATION_LOOKBACK_SESSIONS, use_cache=not refresh_data
+        days_in_past=PRICE_DOWNLOAD_SESSIONS, use_cache=not refresh_data
     )
-    print(f"Loaded data from {start_date} to {end_date}")
     wide_df = pivot_close_wide(long_df)
+    if len(wide_df) < REQUIRED_SESSIONS and not refresh_data:
+        print(
+            f"Cached prices cover {len(wide_df)} sessions, fewer than the "
+            f"{REQUIRED_SESSIONS} needed; downloading again."
+        )
+        long_df, start_date, end_date = tdm.get_latest_tickers(
+            days_in_past=PRICE_DOWNLOAD_SESSIONS, use_cache=False
+        )
+        wide_df = pivot_close_wide(long_df)
+    if len(wide_df) < REQUIRED_SESSIONS:
+        raise ValueError(
+            f"Downloaded prices cover {len(wide_df)} sessions, fewer than the "
+            f"{REQUIRED_SESSIONS} needed for ARIMA ({ARIMA_WINDOW_SESSIONS}) and "
+            f"the optimization ({OPTIMIZATION_LOOKBACK_SESSIONS})."
+        )
+    print(f"Loaded data from {start_date} to {end_date}")
     as_of = as_of_date_str(wide_df.index)
     print(f"Results will be stored under {as_of}/")
 
@@ -225,7 +253,9 @@ def run_pipeline(
     risk_free_rate_data = risk_free_rate_getter(dm)
     print(risk_free_rate_data)
     result = run_portfolio_optimization(
-        wide_df, risk_free_rate_data["daily_risk_free_rate"], rng=rng
+        last_n_sessions(wide_df, OPTIMIZATION_LOOKBACK_SESSIONS),
+        risk_free_rate_data["daily_risk_free_rate"],
+        rng=rng,
     )
     plot_data_path = ensure_parent_dir(
         local_output_path(

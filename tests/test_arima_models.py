@@ -1,11 +1,12 @@
 """
 Tests for fuzzy_system_research.forecasting.arima_models: the single
-differencing step (to_log_returns) and the rolling-origin evaluation of one
-(p, q) candidate (p_d_q_fit), including how failed fits are handled.
+differencing step (to_log_returns), fitting each (p, q) candidate once on
+the whole training window (fit_order, train_arima), and fit(), which selects
+the lowest-BIC candidate and forecasts with its already-fitted model,
+including how failed fits are handled.
 
-p_d_q_fit is called directly. Most tests replace statsmodels'
-ARIMA with a fake whose fits fail on chosen steps; one test uses the real
-model. In-memory only.
+Most tests replace statsmodels' ARIMA with a fake whose fits return chosen
+BICs or fail; two tests use the real model. In-memory only.
 """
 
 import numpy as np
@@ -60,104 +61,124 @@ def test_to_log_returns_keeps_a_missing_session_visible():
     assert np.isnan(returns.loc[prices.index[6]])
 
 
-# p_d_q_fit with a fake ARIMA
+# Fitting candidates with a fake ARIMA
 
 
 class FakeFitted:
-    def __init__(self, next_value: float):
-        self._next = next_value
-        self.aic = 10.0
-        self.bic = 20.0
+    def __init__(self, order: tuple[int, int], bic: float, next_return: float):
+        self.order = order
+        self.aic = bic - 1.0
+        self.bic = bic
+        self._next = next_return
 
     def forecast(self, steps: int = 1) -> pd.Series:
         return pd.Series([self._next])
 
 
-def install_fake_arima(monkeypatch, ts: pd.Series, fail: dict[int, type[Exception]]):
+def install_fake_arima(monkeypatch, outcomes: dict):
     """
-    Replace statsmodels' ARIMA. A successful fit forecasts the true next
-    value of ts exactly, so the RMSE over successful steps is 0. Step k (the
-    k-th fit, from 0) raises fail[k] if present. If a failed step were scored
-    with an earlier step's model, that forecast (an earlier value) would be
-    wrong and the RMSE would be positive.
+    Replace statsmodels' ARIMA. outcomes maps (p, q) to either a BIC (the
+    fit succeeds with that BIC and forecasts a log return of 0.01 * (p + 2q),
+    so each order's forecast is distinguishable) or an exception class (the
+    fit raises it). Returns a record of every fit: (order, length of endog).
     """
-    calls = {"n": 0}
+    fits = []
 
     class FakeARIMA:
         def __init__(self, endog, order):
             self.endog = endog
+            self.order = (order[0], order[2])
+            assert order[1] == 0  # d = 0: the data are already returns.
 
         def fit(self):
-            k = calls["n"]
-            calls["n"] += 1
-            if k in fail:
-                raise fail[k]("forced failure")
-            position = ts.index.get_loc(self.endog.index[-1]) + 1
-            return FakeFitted(float(ts.iloc[position]))
+            fits.append((self.order, len(self.endog)))
+            outcome = outcomes[self.order]
+            if isinstance(outcome, type) and issubclass(outcome, Exception):
+                raise outcome("forced failure")
+            p, q = self.order
+            return FakeFitted(self.order, outcome, 0.01 * (p + 2 * q))
 
     monkeypatch.setattr(arima_models.tsa, "ARIMA", FakeARIMA)
-    return calls
+    return fits
 
 
-def task_for(ts: pd.Series, train_len: int = 10) -> dict:
-    return {"ts": ts, "d": 0, "train_len": train_len, "p": 1, "q": 0}
+def test_train_arima_fits_each_candidate_once_on_the_whole_window(monkeypatch):
+    returns = ArimaModels().to_log_returns(session_prices(n=252))  # 251 returns
+    fits = install_fake_arima(monkeypatch, {(0, 1): 5.0, (1, 0): 3.0, (1, 1): 4.0})
+    train_result, models = ArimaModels().train_arima(returns, max_p=2, max_q=2)
+    assert fits == [((0, 1), 251), ((1, 0), 251), ((1, 1), 251)]
+    assert list(train_result.index) == [(0, 1), (1, 0), (1, 1)]
+    assert train_result.loc[(1, 0), "bic"] == 3.0
+    assert train_result["fit_error"].isna().all()
+    assert set(models) == {(0, 1), (1, 0), (1, 1)}
 
 
-@pytest.fixture
-def returns() -> pd.Series:
-    return ArimaModels().to_log_returns(session_prices(n=21))  # 20 returns
-
-
-def test_first_fit_failing_does_not_crash(monkeypatch, returns):
-    # With the old code this raised, because no previous model existed.
-    install_fake_arima(monkeypatch, returns, fail={0: ValueError})
-    result = ArimaModels().p_d_q_fit(task_for(returns))
-    assert result["n_stationarity_errors"] == 1
-    assert result["rmse"] == pytest.approx(0.0)
-
-
-def test_failed_step_is_excluded_not_scored_with_a_stale_model(monkeypatch, returns):
-    install_fake_arima(monkeypatch, returns, fail={3: ValueError, 6: LinAlgError})
-    result = ArimaModels().p_d_q_fit(task_for(returns))
-    assert result["n_stationarity_errors"] == 1
-    assert result["n_convergence_errors"] == 1
-    # Successful fits forecast perfectly; reusing a stale model would not.
-    assert result["rmse"] == pytest.approx(0.0)
-    assert result["mean_aic"] == pytest.approx(10.0)
-    assert result["mean_bic"] == pytest.approx(20.0)
-
-
-def test_one_fit_per_step(monkeypatch, returns):
-    calls = install_fake_arima(monkeypatch, returns, fail={})
-    ArimaModels().p_d_q_fit(task_for(returns, train_len=10))
-    assert calls["n"] == len(returns) - 10
-
-
-def test_all_fits_failing_scores_infinite_and_ranks_last(monkeypatch, returns):
-    n_steps = len(returns) - 10
-    install_fake_arima(monkeypatch, returns, fail={k: ValueError for k in range(n_steps)})
-    failed = ArimaModels().p_d_q_fit(task_for(returns))
-    assert failed["rmse"] == np.inf
-    assert failed["mean_bic"] == np.inf
-    assert failed["n_stationarity_errors"] == n_steps
-    # Next to a working candidate, the failed one is never selected.
-    train_result = pd.DataFrame(
-        [
-            {**failed, "p": 0, "q": 1},
-            {"p": 1, "q": 0, "rmse": 0.02, "mean_aic": 5.0, "mean_bic": 7.0},
-        ]
-    ).set_index(["p", "q"])
+@pytest.mark.parametrize("error", [ValueError, LinAlgError])
+def test_failed_fit_scores_infinite_and_records_the_error(monkeypatch, error):
+    returns = ArimaModels().to_log_returns(session_prices())
+    install_fake_arima(monkeypatch, {(0, 1): error, (1, 0): 3.0, (1, 1): 4.0})
+    train_result, models = ArimaModels().train_arima(returns, max_p=2, max_q=2)
+    assert models[(0, 1)] is None
+    assert train_result.loc[(0, 1), "bic"] == np.inf
+    assert train_result.loc[(0, 1), "aic"] == np.inf
+    assert train_result.loc[(0, 1), "fit_error"] == error.__name__
+    # The failed candidate is never selected next to working ones.
     assert ArimaModels().select_order(train_result) == (1, 0)
 
 
-# p_d_q_fit with the real statsmodels ARIMA
+def test_fit_forecasts_with_the_lowest_bic_model_without_refitting(monkeypatch):
+    prices = session_prices(n=252)
+    fits = install_fake_arima(monkeypatch, {(0, 1): 5.0, (1, 0): 3.0, (1, 1): 4.0})
+    am = ArimaModels()
+    pred_date, pred, order = am.fit(prices, max_p=2, max_q=2)
+    assert order == (1, 0)
+    assert len(fits) == 3  # One fit per candidate; the winner is not refit.
+    assert am.final_model.order == (1, 0)
+    # (1, 0)'s fake forecast is a log return of 0.01.
+    assert pred == pytest.approx(prices.iloc[-1] * np.exp(0.01))
+    assert pred_date == DateManager().future_business_day(prices.index[-1], 1)
+    assert am.order_tie_broken is False
 
 
-def test_p_d_q_fit_with_real_arima_returns_finite_scores(returns):
-    # Small real fits can occasionally fail; only some must succeed.
-    result = ArimaModels().p_d_q_fit(task_for(returns))
-    n_steps = len(returns) - 10
-    n_errors = result["n_convergence_errors"] + result["n_stationarity_errors"]
-    assert n_errors < n_steps
-    assert np.isfinite(result["rmse"])
-    assert np.isfinite(result["mean_bic"])
+def test_fit_reports_a_tie_break(monkeypatch):
+    install_fake_arima(monkeypatch, {(0, 1): 3.0, (1, 0): 3.0, (1, 1): 4.0})
+    am = ArimaModels()
+    _, _, order = am.fit(session_prices(), max_p=2, max_q=2)
+    assert order == (0, 1)  # Same BIC and p + q; lower p wins.
+    assert am.order_tie_broken is True
+
+
+def test_fit_raises_when_every_candidate_fails(monkeypatch):
+    install_fake_arima(
+        monkeypatch, {(0, 1): ValueError, (1, 0): LinAlgError, (1, 1): ValueError}
+    )
+    with pytest.raises(ValueError, match="Every candidate ARIMA fit failed"):
+        ArimaModels().fit(session_prices(), max_p=2, max_q=2)
+
+
+# The real statsmodels ARIMA
+
+
+def test_fit_with_real_arima_on_a_trading_year():
+    prices = session_prices(n=252)  # One trading year: 251 returns.
+    am = ArimaModels()
+    pred_date, pred, order = am.fit(prices, max_p=2, max_q=2)
+    assert order in {(0, 1), (1, 0), (1, 1)}
+    assert np.isfinite(pred) and pred > 0
+    assert np.isfinite(am.train_result.loc[order, "bic"])
+    assert am.train_result.loc[order, "bic"] == am.train_result["bic"].min()
+
+
+def test_real_arima_bic_matches_a_direct_fit():
+    import warnings
+
+    import statsmodels.tsa.api as tsa
+
+    returns = ArimaModels().to_log_returns(session_prices(n=252))
+    model, row = ArimaModels().fit_order(returns, 1, 0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        direct = tsa.ARIMA(endog=returns, order=(1, 0, 0)).fit()
+    assert row["bic"] == pytest.approx(direct.bic)
+    assert row["fit_error"] is None
+    assert model is not None

@@ -30,7 +30,6 @@ from fuzzy_system_research.forecasting.ticker_predict import (
     ARIMA_MAX_P,
     ARIMA_MAX_Q,
     EVALUATION_DAYS,
-    ORDER_SELECTION_SUBWINDOW_RETURNS,
     TRAINING_WINDOW_RETURNS,
 )
 
@@ -172,14 +171,13 @@ def models_block() -> dict:
             "q_values": list(range(ARIMA_MAX_Q)),
             "excluded_orders": [[0, 0]],
             "order_selection": (
-                "lowest average rank of one-step-ahead RMSE and mean BIC on "
-                "rolling sub-windows of the training window"
+                "lowest BIC, each candidate order fit once on the whole "
+                "training window"
             ),
-            "order_selection_subwindow_returns": ORDER_SELECTION_SUBWINDOW_RETURNS,
-            "order_selection_tie_break": (
-                "lower one-step-ahead RMSE, then fewer parameters (p + q), "
-                "then lower p"
-            ),
+            # Kept so readers of this key still find an integer: candidates
+            # are now scored on one window, the whole training window.
+            "order_selection_subwindow_returns": TRAINING_WINDOW_RETURNS,
+            "order_selection_tie_break": "fewer parameters (p + q), then lower p",
         },
         "naive": {
             "description": "the most recent observed close (random walk)",

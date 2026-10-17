@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 from numpy.linalg import LinAlgError
 import statsmodels.tsa.api as tsa
-from statsmodels.tools.sm_exceptions import ConvergenceWarning
-from sklearn.metrics import mean_squared_error
 from fuzzy_system_research.data.date_manager import DateManager
 
 # Number of times prices are differenced before modeling: once, by
@@ -42,16 +40,20 @@ class ArimaModels:
         """
         return DateManager().future_business_day(date, 1)
 
-    def fit(self, original_ts, max_p=5, max_q=5, train_len=90):
+    def fit(self, original_ts, max_p=5, max_q=5):
         """
-        Fit many ARIMA models to find the best p and q values, one
-        candidate order after another in this process. The prices in original_ts are
-        converted to log returns by to_log_returns(), the only differencing
-        step, before fitting the models. max_p, max_q, and train_len
-        are passed to the other fitting functions as appropriate. It also
-        sets instance attributes with the training results, the final model,
-        and order_tie_broken (whether select_order() needed its tie-break
-        rules; see order_was_tie_broken()).
+        Fit one ARIMA(p, 0, q) model per candidate order on the whole
+        training window, choose the order with the lowest BIC (see
+        select_order()), and forecast one step ahead with that order's model.
+        The prices in original_ts are converted to log returns by
+        to_log_returns(), the only differencing step, before fitting. The
+        selected model is the one already fit during selection; it is not
+        refit.
+
+        Sets the instance attributes train_result (see train_arima()),
+        final_model (the selected fitted model), and order_tie_broken
+        (whether select_order() needed its tie-break rules; see
+        order_was_tie_broken()).
 
         This assumes one index entry per NYSE trading session (as produced
         by asfreq(DateManager().cbd)) and predicts the next NYSE trading day
@@ -60,16 +62,13 @@ class ArimaModels:
         Parameters
         ----------
         original_ts : pd.Series
-            The original time series.
+            The original time series (prices) of the training window.
 
         max_p : int, optional
-            The maximum number of lagged values to test. Defaults to 5.
+            Exclusive upper bound on p. Defaults to 5.
 
         max_q : int, optional
-            The maximum number of lagged disturbances to test. Defaults to 5.
-
-        train_len : int, optional
-            Then length of the training set. Defaults to 120.
+            Exclusive upper bound on q. Defaults to 5.
 
         Returns
         -------
@@ -79,14 +78,22 @@ class ArimaModels:
             original_ts, and the (p, q) order of the model that made the
             forecast (see select_order()). The model is ARIMA(p, 0, q) on
             log returns, equivalent to ARIMA(p, 1, q) on log prices.
+
+        Raises
+        ------
+        ValueError
+            If every candidate's fit failed, so there is no model to
+            forecast with.
         """
         ts = self.to_log_returns(original_ts)
-        self.train_result = self.train_arima(
-            ts, max_p=max_p, max_q=max_q, train_len=train_len, d=0
-        )
+        self.train_result, models = self.train_arima(ts, max_p=max_p, max_q=max_q)
         best_order = self.select_order(self.train_result)
+        if models[best_order] is None:
+            raise ValueError(
+                f"Every candidate ARIMA fit failed on the window ending {ts.index[-1]}."
+            )
         self.order_tie_broken = self.order_was_tie_broken(self.train_result)
-        self.final_model = self.best_arima_model(ts, self.train_result)
+        self.final_model = models[best_order]
         pred_date = self.next_trading_day(ts.index[-1])
         pred = self.predict(original_ts)
         return pred_date, pred, best_order
@@ -113,11 +120,12 @@ class ArimaModels:
         """
         return np.log(original_ts).diff().iloc[1:]
 
-    def train_arima(self, ts, max_p=5, d=0, max_q=5, train_len=120):
+    def train_arima(
+        self, ts: pd.Series, max_p: int = 5, max_q: int = 5
+    ) -> tuple[pd.DataFrame, dict]:
         """
-        Train and score ARIMA models for every p and q under the given
-        maximums (excluding (0, 0)), one after another, to find the best p
-        and q values for modeling the given time series.
+        Fit ARIMA(p, 0, q) on the whole of ts for every p in range(max_p)
+        and q in range(max_q), excluding (0, 0), one after another.
 
         Parameters
         ----------
@@ -126,165 +134,90 @@ class ArimaModels:
             transformed by to_log_returns() first.
 
         max_p : int, optional
-            The maximum number of lagged values to test. Defaults to 5.
+            Exclusive upper bound on p. Defaults to 5.
 
         max_q : int, optional
-            The maximum number of lagged disturbances to test. Defaults to 5.
-
-        train_len : int, optional
-            Then length of the training set. Defaults to 120.
+            Exclusive upper bound on q. Defaults to 5.
 
         Returns
         -------
-        pd.DataFrame
-            Returns a DataFrame, meant for analysis by other functions in this
-            module, that is the results of training with different p and q values.
+        tuple[pd.DataFrame, dict]
+            The results, indexed by (p, q), with the columns of
+            fit_order()'s result row; and the fitted models keyed by (p, q),
+            None where the fit failed.
         """
-        tasks = []
+        rows = []
+        models = {}
         for p in range(max_p):
             for q in range(max_q):
                 if p == 0 and q == 0:
                     continue
-                tasks.append(
-                    {
-                        "ts": ts,
-                        "d": d,
-                        "train_len": train_len,
-                        "p": p,
-                        "q": q,
-                    }
-                )
-        arima_fit_results = [self.p_d_q_fit(task) for task in tasks]
-        arima_fit_df = pd.DataFrame(arima_fit_results)
-        arima_fit_df.set_index(["p", "q"], inplace=True)
-        return arima_fit_df
+                model, row = self.fit_order(ts, p, q)
+                rows.append(row)
+                models[(p, q)] = model
+        train_result = pd.DataFrame(rows).set_index(["p", "q"])
+        return train_result, models
 
-    def p_d_q_fit(self, task):
+    def fit_order(self, ts: pd.Series, p: int, q: int):
         """
-        Train and evaluate an ARIMA model with the given p, d, and q parameters
-        in the task dictionary.
+        Fit one ARIMA(p, 0, q) model on the whole of ts and record its
+        information criteria.
 
-        Rolling-origin evaluation: for each sub-window of train_len
-        observations, fit the model and forecast the next observation one
-        step ahead. If a fit fails (LinAlgError or ValueError), that step is
-        counted as an error and recorded as a missing forecast; it is
-        excluded from the RMSE and from the AIC/BIC means rather than scored
-        with another step's model. If every fit fails, rmse, mean_aic, and
-        mean_bic are infinite so the order ranks last in select_order().
-
-        Called by train_arima once per candidate order.
+        If the fit fails (LinAlgError or ValueError), the model is None, aic
+        and bic are infinite so the order ranks last in select_order(), and
+        fit_error names the exception.
 
         Parameters
         ----------
-        task : dict
-            Dictionary that defines the model training task from train_arima.
+        ts : pd.Series
+            Log returns (see to_log_returns()).
+
+        p, q : int
+            Autoregressive and moving-average orders.
 
         Returns
         -------
-        dict
-            Returns a dictionary, suitable to be used as one row of the results
-            DataFrame returned by train_arima, that contains the results of the
-            training.
+        tuple[statsmodels results or None, dict]
+            The fitted model (None on failure), and a result row with keys
+            p, q, aic, bic, and fit_error (None on success).
         """
-        ts = task["ts"]
-        p = task["p"]
-        d = task["d"]
-        q = task["q"]
-        train_len = task["train_len"]
-        y_true = ts.iloc[train_len:]
-        y_pred = []
-        bics = []
-        aics = []
-        n_convergence_errors = 0
-        n_stationarity_errors = 0
-        for bound in range(train_len, len(ts)):
-            train_set = ts.iloc[bound - train_len : bound]
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore")
-                try:
-                    model = tsa.ARIMA(endog=train_set, order=(p, d, q)).fit()
-                except LinAlgError:
-                    n_convergence_errors += 1
-                    y_pred.append(np.nan)
-                    continue
-                except ValueError:
-                    n_stationarity_errors += 1
-                    y_pred.append(np.nan)
-                    continue
-                forecast = model.forecast(steps=1)
-                y_pred.append(forecast.iloc[0])
-                aics.append(model.aic)
-                bics.append(model.bic)
-        df = (
-            pd.DataFrame({"y_true": y_true.to_numpy(), "y_pred": y_pred})
-            .replace(np.inf, np.nan)
-            .dropna()
-        )
-        if df.empty:
-            rmse = mean_aic = mean_bic = np.inf
-        else:
-            rmse = np.sqrt(
-                mean_squared_error(y_true=df["y_true"], y_pred=df["y_pred"])
-            )
-            mean_aic = np.mean(aics)
-            mean_bic = np.mean(bics)
-        result = {
-            "p": p,
-            "q": q,
-            "rmse": rmse,
-            "mean_aic": mean_aic,
-            "mean_bic": mean_bic,
-            "n_convergence_errors": n_convergence_errors,
-            "n_stationarity_errors": n_stationarity_errors,
-        }
-        return result
-
-    @staticmethod
-    def average_rank(train_result: pd.DataFrame) -> pd.Series:
-        """
-        Each candidate's average of its rank by out-of-sample RMSE and its
-        rank by mean BIC (rank 1 is the lowest value; equal values share the
-        average of their ranks). Lower is better. Pure function.
-
-        Parameters
-        ----------
-        train_result : pd.DataFrame
-            Training results from train_arima(), indexed by (p, q), with at
-            least "rmse" and "mean_bic" columns.
-
-        Returns
-        -------
-        pd.Series
-            Average rank, indexed like train_result.
-        """
-        return train_result[["rmse", "mean_bic"]].rank().mean(axis=1)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            try:
+                model = tsa.ARIMA(endog=ts, order=(p, 0, q)).fit()
+            except (LinAlgError, ValueError) as error:
+                row = {
+                    "p": p,
+                    "q": q,
+                    "aic": np.inf,
+                    "bic": np.inf,
+                    "fit_error": type(error).__name__,
+                }
+                return None, row
+        row = {"p": p, "q": q, "aic": model.aic, "bic": model.bic, "fit_error": None}
+        return model, row
 
     def select_order(self, train_result: pd.DataFrame) -> tuple[int, int]:
         """
-        Choose the (p, q) order with the best combined rank: each candidate
-        is ranked by out-of-sample RMSE and by mean BIC (lower is better for
-        both), the two ranks are averaged (see average_rank()), and the
-        lowest average wins. Pure function.
+        Choose the (p, q) order with the lowest BIC, each candidate having
+        been fit once on the whole training window (see train_arima()). Pure
+        function.
 
-        With few candidates, equal average ranks are common (e.g. ranks
-        (1, 2) and (2, 1) both average 1.5). Ties are broken, in this order,
-        by:
+        Exactly equal BICs are rare (in practice, two failed fits, both
+        infinite). Ties are broken, in this order, by:
 
-        1. lower out-of-sample RMSE (the forecasting objective; BIC's
-           complexity penalty has already counted once in the average),
-        2. fewer parameters, p + q (parsimony, e.g. when two candidates'
-           fits all failed and both RMSEs are infinite),
-        3. lower p (only so that the result never depends on row order).
+        1. fewer parameters, p + q (parsimony),
+        2. lower p (only so that the result never depends on row order).
 
         The result therefore does not depend on the row order of
-        train_result. Ranks ignore the size of differences, so an RMSE lower
-        by a tiny amount still ranks ahead; no tolerance is applied.
+        train_result. No tolerance is applied: a BIC lower by a tiny amount
+        still wins.
 
         Parameters
         ----------
         train_result : pd.DataFrame
             Training results from train_arima(), indexed by (p, q), with at
-            least "rmse" and "mean_bic" columns.
+            least a "bic" column.
 
         Returns
         -------
@@ -297,60 +230,34 @@ class ArimaModels:
         # or pandas cannot tell which one a sort key refers to.
         candidates = pd.DataFrame(
             {
-                "average_rank": self.average_rank(train_result),
-                "rmse": train_result["rmse"],
+                "bic": train_result["bic"],
                 "n_params": p + q,
                 "ar_order": p,
             },
             index=train_result.index,
         )
         best_p, best_q = candidates.sort_values(
-            ["average_rank", "rmse", "n_params", "ar_order"], kind="stable"
+            ["bic", "n_params", "ar_order"], kind="stable"
         ).index[0]
         return int(best_p), int(best_q)
 
     def order_was_tie_broken(self, train_result: pd.DataFrame) -> bool:
         """
         Whether select_order() needed its tie-break rules for train_result,
-        i.e. more than one candidate shares the lowest average rank. Pure
-        function.
+        i.e. more than one candidate shares the lowest BIC. Pure function.
 
         Parameters
         ----------
         train_result : pd.DataFrame
-            Training results from train_arima() (see average_rank()).
+            Training results from train_arima(), with a "bic" column.
 
         Returns
         -------
         bool
-            True if two or more candidates tie for the lowest average rank.
+            True if two or more candidates tie for the lowest BIC.
         """
-        average_rank = self.average_rank(train_result)
-        return bool((average_rank == average_rank.min()).sum() > 1)
-
-    def best_arima_model(self, ts, train_result):
-        """
-        Use training results from train_arima and make a final ARIMA
-        model that has the best p and q values, as determined by their
-        RMSE and BIC metrics.
-
-        Parameters
-        ----------
-        ts : ndarray of float64
-            Log-transformed and differenced timeseries to model.
-
-        train_result : pd.DataFrame
-            DataFrame of training results of ARIMA models.
-
-        Returns
-        -------
-        ARIMA models trained with the best p and q values.
-        """
-        best_p, best_q = self.select_order(train_result)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
-            best_arima_model = tsa.ARIMA(endog=ts, order=(best_p, 0, best_q)).fit()
-        return best_arima_model
+        bic = train_result["bic"]
+        return bool((bic == bic.min()).sum() > 1)
 
     def predict(self, orginal_ts):
         """

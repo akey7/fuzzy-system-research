@@ -15,21 +15,22 @@ from fuzzy_system_research.forecasting.arima_models import (
 )
 from fuzzy_system_research.storage.layout import ensure_parent_dir
 
-# Returns in each walk-forward training window (about one month).
-TRAINING_WINDOW_RETURNS = 20
+# Returns in each walk-forward training window: one trading year of closes
+# (252, from the window's last session back 251 sessions) gives 251 daily log
+# returns.
+TRAINING_WINDOW_RETURNS = 251
 # Backtest days scored in all_forecasts_metadata.yml.
 EVALUATION_DAYS = 20
 # Most recent trading sessions of price data the walk-forward ARIMA uses: one
 # training window's prices (TRAINING_WINDOW_RETURNS + 1) plus one session per
 # scored day, giving EVALUATION_DAYS forecasts with actuals plus the live
-# forecast. 20 + 20 + 1 = 41.
+# forecast. 251 + 20 + 1 = 272.
 ARIMA_WINDOW_SESSIONS = TRAINING_WINDOW_RETURNS + EVALUATION_DAYS + 1
 # ARIMA order search: p in range(ARIMA_MAX_P), q in range(ARIMA_MAX_Q),
-# excluding (0, 0).
+# excluding (0, 0). Each candidate is fit once on the whole training window
+# and the lowest BIC wins (see ArimaModels.select_order()).
 ARIMA_MAX_P = 2
 ARIMA_MAX_Q = 2
-# Returns in each rolling sub-window used to score candidate orders.
-ORDER_SELECTION_SUBWINDOW_RETURNS = 10
 # Environment variables that set how many threads the numeric libraries under
 # NumPy and SciPy may start (OpenMP, OpenBLAS, MKL, Apple Accelerate,
 # numexpr). Worker processes get one thread each, so N workers use about N
@@ -102,12 +103,7 @@ def _fit_window(
     module level so that worker processes can unpickle it.
     """
     am = ArimaModels()
-    pred_date, pred, order = am.fit(
-        ticker_ts,
-        max_p=max_p,
-        max_q=max_q,
-        train_len=ORDER_SELECTION_SUBWINDOW_RETURNS,
-    )
+    pred_date, pred, order = am.fit(ticker_ts, max_p=max_p, max_q=max_q)
     return pred_date, pred, order, bool(am.order_tie_broken)
 
 
@@ -209,8 +205,7 @@ class ArimaWalkForward:
             Sorted dates of the price data, one per observed trading session.
 
         num_days : int, optional
-            Number of returns in each window. Defaults to 20, about a month
-            of trading days.
+            Number of returns in each window. Defaults to 20.
 
         Returns
         -------
@@ -238,8 +233,9 @@ class ArimaWalkForward:
     ):
         """
         Trains ARIMA models along each training window implementing a
-        walk-forward backtesting scheme of model evaluation. Each training
-        seeks the optimal (p, q) values for the best performance.
+        walk-forward backtesting scheme of model evaluation. In each window,
+        every candidate (p, q) is fit once on the whole window and the
+        lowest BIC wins (see ArimaModels.fit()).
 
         All (ticker, window) fits are independent, so they run together in
         one pool of self.n_workers processes (see fit_windows()). The output
@@ -267,8 +263,7 @@ class ArimaWalkForward:
 
         n_business_days : int, optional
             Number of returns in each training window. Defaults to
-            TRAINING_WINDOW_RETURNS (20), which is about a
-            month of business days.
+            TRAINING_WINDOW_RETURNS (251), one trading year of closes.
 
         max_p : int, optional
             Exclusive upper bound on p. Defaults to ARIMA_MAX_P (2), so p is 0 or 1.

@@ -4,7 +4,7 @@ fuzzy_system_research.forecasting.ticker_predict: the default worker count,
 the single-thread environment for workers, and fit_windows().
 
 One test starts a real pool of 2 worker processes and fits the real
-statsmodels ARIMA on short synthetic windows, so it takes a few seconds
+statsmodels ARIMA on one-year synthetic windows, so it takes a few seconds
 while the workers import their libraries. In-memory only.
 """
 
@@ -75,7 +75,7 @@ def test_fit_windows_rejects_fewer_than_one_worker(n_workers):
         fit_windows([], max_p=2, max_q=2, n_workers=n_workers)
 
 
-def synthetic_windows(n_windows: int = 3, n_sessions: int = 21) -> list[pd.Series]:
+def synthetic_windows(n_windows: int = 3, n_sessions: int = 252) -> list[pd.Series]:
     """Price windows on consecutive NYSE sessions, as train_arima_models builds them."""
     cbd = DateManager().cbd
     index = pd.date_range(end="2026-04-02 17:00", periods=n_sessions, freq=cbd)
