@@ -12,8 +12,10 @@ default.
 File layout:
 
     time_series_models:
-      training_window_length: 252    # closes per ARIMA training window
-      evaluation_window_length: 20   # backtest days scored
+      training_window_length: <int>    # closes per ARIMA training window
+      evaluation_window_length: <int>  # backtest days scored
+
+The current values are in the file itself.
 """
 
 import os
@@ -83,7 +85,7 @@ class TimeSeriesConfig:
         Most recent trading sessions the walk-forward ARIMA needs: one
         training window's closes plus one session per scored day, giving
         evaluation_window_length forecasts with actuals plus the live
-        forecast (252 + 20 = 272 with the current settings).
+        forecast: training_window_length + evaluation_window_length.
         """
         return self.training_window_length + self.evaluation_window_length
 

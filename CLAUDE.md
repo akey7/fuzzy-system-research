@@ -24,7 +24,7 @@ A hobby project (also a portfolio piece) that demonstrates time series modeling 
 
 1. Downloads adjusted open/high/low/close data for a portfolio of stocks, starting one year ago through the current day, plus the daily 3-month U.S. Treasury bill rate (from Massive.com; API key variable `MASSIVE_API_KEY`).
 2. Optimizes portfolio weights for (a) maximum Sharpe ratio, using the current T-bill rate as the risk-free rate, and (b) minimum variance. Also computes the efficient frontier and a Monte Carlo simulation of portfolio risk/return.
-3. Slides a one-month window of prior trading days to train ARIMA models predicting each day's close price, and computes RMSE for those models.
+3. Slides a window of prior trading days to train ARIMA models predicting each day's close price over a backtest period, and computes accuracy metrics (RMSE and others, against a naive baseline) for those models. The window and backtest lengths are settings: consult `config/modeling_and_optimization.yml` (its comments) and the README's "Model settings" section for their current values and meaning. Don't restate the values in docs.
 4. Uploads all ARIMA and optimization results to a DigitalOcean Spaces (S3-compatible) bucket, which the frontend reads.
 
 The bucket is the **interface contract** with the frontend. Treat the schema, file names, and formats of uploaded artifacts as a public API (see "Changing the frontend contract").
@@ -55,7 +55,7 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 | `src/fuzzy_system_research/forecasting/arima_models.py` | ARIMA training on price data | No | No |
 | `src/fuzzy_system_research/forecasting/ticker_predict.py` | `ArimaWalkForward` (walk-forward ARIMA, all windows fit in one `ProcessPoolExecutor` sized by `default_worker_count()`, half the logical CPUs) and `load_or_train_forecasts()` (per-date cache) | No | No |
 | `src/fuzzy_system_research/forecasting/metrics.py` | Pure forecast-accuracy metrics (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) over the last `evaluation_window_length` scored days; builds and writes `all_forecasts_metadata.yml` | No | No |
-| `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (277 sessions with the current config; a too-short cache is downloaded again once) → ARIMA on the last training + evaluation sessions (272; order by lowest BIC) → forecast metrics → optimization on the last 252 → uploads (csv, forecast metrics yml, h5, optimization yml last) only if all succeed; dependencies injectable for tests | No | Yes |
+| `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (long enough for the configured ARIMA windows and the optimization; a too-short cache is downloaded again once) → ARIMA on the last training window + scored sessions (order by lowest BIC) → forecast metrics → optimization on the last 252 → uploads (csv, forecast metrics yml, h5, optimization yml last) only if all succeed; dependencies injectable for tests | No | Yes |
 | `src/fuzzy_system_research/storage/layout.py` | Pure helpers for dated `output/` paths and bucket keys; the single source of truth for both layouts | No | No |
 | `src/fuzzy_system_research/storage/s3_uploader.py` | S3/Spaces upload helper | No | Used by others |
 

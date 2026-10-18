@@ -127,7 +127,8 @@ def test_every_pred_date_is_a_unique_nyse_session_after_the_window():
 
 
 def test_one_trading_year_window_with_twenty_backtest_days():
-    # The current settings in config/modeling_and_optimization.yml.
+    # A representative configuration (252 closes, 20 scored days), independent
+    # of the values in config/modeling_and_optimization.yml.
     ts_config = TimeSeriesConfig(training_window_length=252, evaluation_window_length=20)
     returns = ts_config.training_window_returns
     eval_days = ts_config.evaluation_window_length

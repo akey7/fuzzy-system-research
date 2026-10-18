@@ -45,20 +45,21 @@ Always run scripts from the repository root, because the scripts read and write 
 
 ### Model settings
 
-Time series settings live in `config/modeling_and_optimization.yml`, which is checked into the repository:
+Time series settings live in `config/modeling_and_optimization.yml`, which is checked into the repository. **For the current values, and what each setting means, consult that file's comments;** the validation rules (types and minimums) are documented in `src/fuzzy_system_research/config.py`. This README deliberately does not repeat the values, so it cannot go out of date when they change.
 
 ```yaml
 time_series_models:
-  training_window_length: 252    # closes (trading sessions) per ARIMA training window
-  evaluation_window_length: 20   # most recent trading days backtested and scored
+  training_window_length: ...    # closes (trading sessions) per ARIMA training window
+  evaluation_window_length: ...  # most recent trading days backtested and scored
 ```
 
-- `training_window_length` counts **closing prices**, so 252 closes give 251 daily log returns, about one trading year. It must be at least 30.
-- `evaluation_window_length` is the number of backtest days in `all_forecasts.csv` (plus the live forecast) and in the metrics of `all_forecasts_metadata.yml`. It must be at least 1.
+- `training_window_length` counts **closing prices**; each window has one fewer daily log return than closes.
+- `evaluation_window_length` is the number of backtest days in `all_forecasts.csv` (plus the live forecast) and in the metrics of `all_forecasts_metadata.yml`.
 - Both keys are required, and unknown keys are rejected, so a typo stops the run before any download instead of silently using a default.
-- The run downloads enough history for both settings and the optimization's 252 sessions.
+- The run downloads enough history for the ARIMA windows plus scored days and for the optimization's 252 sessions, whichever is longer, with a small margin.
+- Each run records the values it used in `all_forecasts_metadata.yml` (`forecast_window.training_window_returns`, `evaluation_window.target_trading_days`), which is where the frontend reads them.
 
-Changing a value changes what is uploaded. Run with `--retrain-arima` afterwards, because the cached forecasts for a date are otherwise reused, and update `INTERFACE_CONTRACT.md` wherever it documents the value.
+Changing a value changes what is uploaded. Run with `--retrain-arima` afterwards, because the cached forecasts for a date are otherwise reused. `INTERFACE_CONTRACT.md` does not state the values, so changing them needs no contract update as long as their meaning stays the same.
 
 Run development tools the same way, for example `uv run pytest` or `uv run black .`.
 
@@ -120,7 +121,7 @@ The following folders should be created before running the scripts in the sectio
 
 1. `input/`: Holds risk free rate data.
 
-2. `input/annual/`: Holds the cached price downloads (about 277 trading days, one file per run date). Both the optimization and the ARIMA forecasts use this data: the optimization uses its last 252 trading days, and ARIMA its last 272 (one-year training windows of 252 closes plus 20 scored backtest days). A cached file that is too short, for example one written before the ARIMA window grew, is downloaded again automatically.
+2. `input/annual/`: Holds the cached price downloads (one file per run date), long enough for both the optimization and the ARIMA forecasts. The optimization uses the last 252 trading days, and ARIMA the last training window plus scored backtest days (see "Model settings" for where those lengths are set). A cached file that is too short, for example one written before the ARIMA window grew, is downloaded again automatically.
 
 3. `output/`: Holds the results of runs, in one folder per data as-of date (the last NYSE trading day in the run's data). Subfolders are created automatically. The layout mirrors the frontend buckets, where each file's key is its path below `output/<kind>/`:
 

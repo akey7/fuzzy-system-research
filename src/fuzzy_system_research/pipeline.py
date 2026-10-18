@@ -75,7 +75,8 @@ PRICE_DOWNLOAD_MARGIN_SESSIONS = 5
 def required_sessions(ts_config: TimeSeriesConfig) -> int:
     """
     Trading sessions every run needs: enough for both the optimization and
-    the walk-forward ARIMA (272 with the current settings). Pure function.
+    the walk-forward ARIMA (TimeSeriesConfig.arima_window_sessions),
+    whichever is larger. Pure function.
     """
     return max(OPTIMIZATION_LOOKBACK_SESSIONS, ts_config.arima_window_sessions)
 
@@ -83,7 +84,7 @@ def required_sessions(ts_config: TimeSeriesConfig) -> int:
 def price_download_sessions(ts_config: TimeSeriesConfig) -> int:
     """
     Trading sessions requested from the API: required_sessions() plus
-    PRICE_DOWNLOAD_MARGIN_SESSIONS (277 with the current settings). Pure
+    PRICE_DOWNLOAD_MARGIN_SESSIONS. Pure
     function.
     """
     return required_sessions(ts_config) + PRICE_DOWNLOAD_MARGIN_SESSIONS

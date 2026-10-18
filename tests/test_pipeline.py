@@ -35,7 +35,8 @@ RF_DATA = {
     "risk_free_rate_date": "2026-10-08 00:00:00",
 }
 STUB_UPLIFT = 1.01  # Fake ARIMA forecast = 1 % above the previous close.
-# The current settings in config/modeling_and_optimization.yml.
+# A representative configuration (252 closes, 20 scored days). The tests do
+# not depend on the values in config/modeling_and_optimization.yml.
 TS_CONFIG = TimeSeriesConfig(training_window_length=252, evaluation_window_length=20)
 ARIMA_WINDOW_SESSIONS = TS_CONFIG.arima_window_sessions
 EVALUATION_DAYS = TS_CONFIG.evaluation_window_length
