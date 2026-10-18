@@ -22,7 +22,7 @@ Editing the *code* of scripts that read from `input/` or write to `output/` is f
 
 A hobby project (also a portfolio piece) that demonstrates time series modeling and portfolio optimization on familiar financial data. The backend is run **manually, locally, on a Mac mini** (macOS). It:
 
-1. Downloads adjusted open/high/low/close data for a portfolio of stocks, starting one year ago through the current day, plus the daily 3-month U.S. Treasury bill rate (from Massive.com; API key variable `MASSIVE_API_KEY`).
+1. Downloads adjusted open/high/low/close data for a portfolio of stocks from Massive.com (API key variable `MASSIVE_API_KEY`), covering enough recent trading days for the optimization and the configured ARIMA windows, through the most recent trading day. Separately, it downloads the daily 3-month U.S. Treasury bill rate from FRED (series `DTB3`, via `pandas-datareader`; no API key).
 2. Optimizes portfolio weights for (a) maximum Sharpe ratio, using the current T-bill rate as the risk-free rate, and (b) minimum variance. Also computes the efficient frontier and a Monte Carlo simulation of portfolio risk/return.
 3. Slides a window of prior trading days to train ARIMA models predicting each day's close price over a backtest period, and computes accuracy metrics (RMSE and others, against a naive baseline) for those models. The window and backtest lengths are settings: consult `config/modeling_and_optimization.yml` (its comments) and the README's "Model settings" section for their current values and meaning. Don't restate the values in docs.
 4. Uploads all ARIMA and optimization results to a DigitalOcean Spaces (S3-compatible) bucket, which the frontend reads.
@@ -142,3 +142,5 @@ Prefer additive changes (new fields/files) over breaking ones, and note a migrat
 ## Keeping this file current
 
 After the reorganization, update the "Repo layout" section. If the project gains tests, linting configuration, or new scripts, add the commands the human uses to run them (for the human to run, not Claude).
+
+The README's "How the backend works" section has two diagrams that name source files, classes, functions, and the files each step reads, writes, and uploads. In the same change, update them whenever a pipeline step, source file, class, function, local file, or uploaded file shown there is added, renamed, moved, or removed, and keep them free of setting values such as window lengths.

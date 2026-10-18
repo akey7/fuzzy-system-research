@@ -91,6 +91,81 @@ Here are the keys the scripts need to function:
 
 Items 2 through 4 connect the backend to the front end.
 
+## How the backend works
+
+One run of `scripts/run_optimization_and_time_series.py` downloads prices, then follows two paths, the time series forecasts and the portfolio optimization, and finally uploads their results. The first diagram shows which module owns each part of a run; the second shows which files each step reads and writes, and the functions that write them.
+
+### From data sources to upload
+
+```text
+ legend: [external]   module.py   ─► data flow
+         module paths are relative to src/fuzzy_system_research/
+
+ scripts/run_optimization_and_time_series.py      entry point
+   ├─ config.py ◄── config/modeling_and_optimization.yml
+   └─ pipeline.py                                 runs the steps below
+        │
+ [Massive.com API] ──► 1. PRICES
+                         data/ticker_download_manager.py   download, cache in input/annual/
+                         data/date_manager.py              NYSE trading calendar
+                         data/prices.py                    wide price table, recent sessions
+        │
+        ├────────────────────────────────┐   (run in order: 2, then 3)
+        ▼                                ▼
+ 2. TIME SERIES                     3. OPTIMIZATION
+ forecasting/ticker_predict.py      optimization/portfolio.py  ◄── [FRED: DTB3]
+   walk-forward windows,              optimizers, risk-free rate (cache in input/)
+   worker pool                      optimization/workflow.py
+ forecasting/arima_models.py          full optimization run, .h5 and .yml writers
+   ARIMA fits, order by BIC
+ forecasting/metrics.py
+   accuracy vs. naive, .yml writer
+        │                                │
+        └────────────────┬───────────────┘
+                         ▼
+ 4. UPLOAD   only if 2 and 3 both succeeded; skipped with --no-upload
+    storage/layout.py        dated local paths and bucket keys
+    storage/s3_uploader.py   uploads to the DigitalOcean Space
+                         │
+                         ▼
+             [DigitalOcean Space]   (files in the next diagram)
+```
+
+- The two paths run one after the other in a single process. Within the time series path, the ARIMA fits for every ticker and day run at the same time in a pool of worker processes (`--workers`).
+- The ARIMA window and the number of scored days come from the configuration file (see "Model settings"); the optimization window is set in `pipeline.py`.
+- Nothing is uploaded unless every step succeeds.
+
+### Files read and written
+
+```text
+ legend: ◄── written by    [n] upload order    <as-of> = last trading day in the data
+
+ READS
+   config/modeling_and_optimization.yml     load_config()
+   input/annual/Tickers YYYY-MM-DD.csv      price cache, reused for the run date
+   input/Risk Free Rate YYYY-MM-DD.json     T-bill cache, reused for the run date
+        │
+        ▼
+ WRITES (local)                                                         UPLOAD
+   output/time_series/<as-of>/
+     ├── all_forecasts.csv                    ◄── load_or_train_forecasts()      [1]
+     │     (reused if present, unless --retrain-arima)
+     └── all_forecasts_metadata.yml           ◄── write_forecast_metadata()      [2]
+   output/portfolio_optimization/<as-of>/
+     ├── portfolio_optimization_plot_data.h5  ◄── write_plot_data_h5()           [3]
+     └── optimization_metadata.yml            ◄── write_optimization_metadata()  [4]
+                                                  (uploaded last: marks the date complete)
+        │
+        ▼
+ UPLOAD   S3Uploader.upload_file(), to the Space named by FSF_FRONT_END_BUCKET_NAME
+   output/time_series/<as-of>/*
+       ─►  <FSF_FRONT_END_TIME_SERIES_FOLDER>/<as-of>/*
+   output/portfolio_optimization/<as-of>/*
+       ─►  <FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/<as-of>/*
+```
+
+The local folders mirror the bucket keys (`storage/layout.py` builds both), so each local date folder maps to the same date folder in the Space. `INTERFACE_CONTRACT.md` describes what each uploaded file contains.
+
 ## Project structure
 
 The repository separates code that you **run** from code that you **import**:
