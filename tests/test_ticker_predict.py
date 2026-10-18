@@ -13,15 +13,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from fuzzy_system_research.config import TimeSeriesConfig
 from fuzzy_system_research.data.date_manager import DateManager, nyse_holidays
 from fuzzy_system_research.forecasting import ticker_predict
 from fuzzy_system_research.forecasting.arima_models import ArimaModels
-from fuzzy_system_research.forecasting.ticker_predict import (
-    ARIMA_WINDOW_SESSIONS,
-    EVALUATION_DAYS,
-    TRAINING_WINDOW_RETURNS,
-    ArimaWalkForward,
-)
+from fuzzy_system_research.forecasting.ticker_predict import ArimaWalkForward
 
 
 STUB_UPLIFT = 1.01  # Stub ARIMA forecast = 1 % above the last observed close.
@@ -66,15 +62,14 @@ def stub_arima(monkeypatch):
 
 
 # Most tests check dates and row assembly, not the window length, so they use
-# 40 sessions of prices and a 20-return window. The production window
-# (TRAINING_WINDOW_RETURNS, one trading year) is tested separately below.
+# 40 sessions of prices and a 20-return window. The configured one-year window
+# is tested separately below.
 SHORT_WINDOW_RETURNS = 20
 
 
 class ShortWindowWalkForward(ArimaWalkForward):
-    def train_arima_models(self, df, **kwargs):
-        kwargs.setdefault("n_business_days", SHORT_WINDOW_RETURNS)
-        return super().train_arima_models(df, **kwargs)
+    def __init__(self, n_workers: int | None = None):
+        super().__init__(training_window_returns=SHORT_WINDOW_RETURNS, n_workers=n_workers)
 
 
 def nyse_prices(last_session: str, n_sessions: int = 40) -> pd.DataFrame:
@@ -131,21 +126,26 @@ def test_every_pred_date_is_a_unique_nyse_session_after_the_window():
 # The production window: one trading year per forecast
 
 
-def test_default_window_is_one_trading_year_with_twenty_backtest_days():
-    assert TRAINING_WINDOW_RETURNS == 251
-    assert ARIMA_WINDOW_SESSIONS == 272
-    prices = nyse_prices("2026-10-15", n_sessions=ARIMA_WINDOW_SESSIONS)
-    forecasts = ArimaWalkForward().train_arima_models(prices)
+def test_one_trading_year_window_with_twenty_backtest_days():
+    # A representative configuration (252 closes, 20 scored days), independent
+    # of the values in config/modeling_and_optimization.yml.
+    ts_config = TimeSeriesConfig(training_window_length=252, evaluation_window_length=20)
+    returns = ts_config.training_window_returns
+    eval_days = ts_config.evaluation_window_length
+    assert returns == 251
+    assert ts_config.arima_window_sessions == 272
+    prices = nyse_prices("2026-10-15", n_sessions=ts_config.arima_window_sessions)
+    forecasts = ArimaWalkForward(training_window_returns=returns).train_arima_models(prices)
     # 20 backtest rows with actuals plus the live row.
-    assert len(forecasts) == EVALUATION_DAYS + 1
+    assert len(forecasts) == eval_days + 1
     assert forecasts.iloc[:-1]["AAA"].notna().all()
     # Every model saw 252 closes (251 returns), ending on its forecast origin.
-    assert len(StubArimaModels.fitted) == 2 * (EVALUATION_DAYS + 1)
-    assert all(len(ts) == TRAINING_WINDOW_RETURNS + 1 for ts in StubArimaModels.fitted)
+    assert len(StubArimaModels.fitted) == 2 * (eval_days + 1)
+    assert all(len(ts) == ts_config.training_window_length for ts in StubArimaModels.fitted)
     # The live forecast's window is the last 252 sessions of the data.
     live = [ts for ts in StubArimaModels.fitted if ts.name == "AAA"][-1]
     assert live.index[-1] == prices.index[-1]
-    assert live.index[0] == prices.index[-(TRAINING_WINDOW_RETURNS + 1)]
+    assert live.index[0] == prices.index[-ts_config.training_window_length]
 
 
 # Training windows are resampled to NYSE sessions, not pandas "B" weekdays.
@@ -410,7 +410,7 @@ AFTER_GAP = pd.Timestamp("2026-03-11 17:00")
 
 def test_training_windows_end_on_observed_dates_only():
     index = nyse_prices("2026-04-02").drop(index=GAP).index
-    windows = ArimaWalkForward().training_window_start_end(index, num_days=20)
+    windows = ArimaWalkForward.training_window_start_end(index, num_days=20)
     ends = [end for _, end in windows]
     starts = [start for start, _ in windows]
     assert ends == list(index[20:])
@@ -421,7 +421,7 @@ def test_training_windows_end_on_observed_dates_only():
 
 def test_training_windows_on_complete_data_are_one_per_session():
     index = nyse_prices("2026-04-02").index
-    windows = ArimaWalkForward().training_window_start_end(index, num_days=20)
+    windows = ArimaWalkForward.training_window_start_end(index, num_days=20)
     assert len(windows) == len(index) - 20
     for start, end in windows:
         assert len(index[(index >= start) & (index <= end)]) == 21  # 20 returns
@@ -430,7 +430,7 @@ def test_training_windows_on_complete_data_are_one_per_session():
 def test_training_windows_need_more_dates_than_the_window():
     index = nyse_prices("2026-04-02", n_sessions=20).index
     with pytest.raises(ValueError):
-        ArimaWalkForward().training_window_start_end(index, num_days=20)
+        ArimaWalkForward.training_window_start_end(index, num_days=20)
 
 
 def test_whole_missing_session_gives_unique_dates_and_no_two_step_row():

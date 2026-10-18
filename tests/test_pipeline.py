@@ -14,18 +14,14 @@ import pytest
 import yaml
 
 from conftest import SYNTHETIC_TICKERS, make_long_prices
+from fuzzy_system_research.config import TimeSeriesConfig
 from fuzzy_system_research.data.prices import pivot_close_wide
-from fuzzy_system_research.forecasting.ticker_predict import (
-    ARIMA_WINDOW_SESSIONS,
-    EVALUATION_DAYS,
-    TRAINING_WINDOW_RETURNS,
-)
 from fuzzy_system_research.pipeline import (
     OPTIMIZATION_LOOKBACK_SESSIONS,
     PORTFOLIO_FOLDER_ENV,
-    PRICE_DOWNLOAD_SESSIONS,
-    REQUIRED_SESSIONS,
     TIME_SERIES_FOLDER_ENV,
+    price_download_sessions,
+    required_sessions,
     run_pipeline,
 )
 from fuzzy_system_research.storage.s3_uploader import BUCKET_NAME_ENV
@@ -39,6 +35,14 @@ RF_DATA = {
     "risk_free_rate_date": "2026-10-08 00:00:00",
 }
 STUB_UPLIFT = 1.01  # Fake ARIMA forecast = 1 % above the previous close.
+# A representative configuration (252 closes, 20 scored days). The tests do
+# not depend on the values in config/modeling_and_optimization.yml.
+TS_CONFIG = TimeSeriesConfig(training_window_length=252, evaluation_window_length=20)
+ARIMA_WINDOW_SESSIONS = TS_CONFIG.arima_window_sessions
+EVALUATION_DAYS = TS_CONFIG.evaluation_window_length
+TRAINING_WINDOW_RETURNS = TS_CONFIG.training_window_returns
+REQUIRED_SESSIONS = required_sessions(TS_CONFIG)
+PRICE_DOWNLOAD_SESSIONS = price_download_sessions(TS_CONFIG)
 # A full download: as many sessions as the pipeline requests.
 N_SESSIONS = PRICE_DOWNLOAD_SESSIONS
 
@@ -69,16 +73,20 @@ class FakeTrainer:
     previous close) and T (the actual, empty on the live row).
     """
 
-    def __init__(self, fail: bool = False):
+    def __init__(
+        self, fail: bool = False, training_window_returns: int = TRAINING_WINDOW_RETURNS
+    ):
         self.fail = fail
+        self.training_window_returns = training_window_returns
         self.calls: list[pd.DataFrame] = []
 
     def train_arima_models(self, df: pd.DataFrame) -> pd.DataFrame:
         self.calls.append(df)
         if self.fail:
             raise RuntimeError("ARIMA failed")
-        window_ends = df.index[TRAINING_WINDOW_RETURNS:]
-        pred_dates = list(df.index[TRAINING_WINDOW_RETURNS + 1 :]) + [
+        n = self.training_window_returns
+        window_ends = df.index[n:]
+        pred_dates = list(df.index[n + 1 :]) + [
             df.index[-1] + pd.offsets.BDay(1)
         ]
         out = pd.DataFrame(index=pd.DatetimeIndex(pred_dates, name="pred_date"))
@@ -114,6 +122,7 @@ def deps(tmp_path):
     trainer = FakeTrainer()
     uploader = FakeUploader()
     kwargs = dict(
+        ts_config=TS_CONFIG,
         tdm=tdm,
         trainer=trainer,
         uploader=uploader,
@@ -193,6 +202,39 @@ def test_single_download_of_enough_sessions_with_cache(upload_env, deps):
     assert REQUIRED_SESSIONS == ARIMA_WINDOW_SESSIONS == 272
     assert PRICE_DOWNLOAD_SESSIONS > REQUIRED_SESSIONS  # A small margin.
     assert tdm.calls == [{"days_in_past": PRICE_DOWNLOAD_SESSIONS, "use_cache": True}]
+
+
+def test_settings_flow_from_the_config_into_every_step(upload_env, deps):
+    # A different configuration changes the download, the ARIMA input, and
+    # the metadata, with no other code change.
+    _, _, _, kwargs = deps
+    ts_config = TimeSeriesConfig(training_window_length=100, evaluation_window_length=10)
+    trainer = FakeTrainer(training_window_returns=ts_config.training_window_returns)
+    tdm = FakeTickerDownloadManager(make_long_prices(n_sessions=N_SESSIONS))
+    kwargs.update(ts_config=ts_config, trainer=trainer, tdm=tdm)
+    result = run_pipeline(**kwargs)
+    # The optimization's 252 sessions are now the larger need, plus the margin.
+    assert required_sessions(ts_config) == OPTIMIZATION_LOOKBACK_SESSIONS
+    assert tdm.calls[0]["days_in_past"] == price_download_sessions(ts_config)
+    (window,) = trainer.calls
+    assert len(window) == 110  # 100 closes + 10 scored days.
+    meta = load_forecasts_metadata(result)
+    assert meta["forecast_window"]["training_window_returns"] == 99
+    assert meta["models"]["arima"]["order_selection_subwindow_returns"] == 99
+    assert meta["evaluation_window"]["target_trading_days"] == 10
+    for metrics in meta["ticker_metrics"].values():
+        assert metrics["n_evaluated"] == 10
+    # The live forecast's training window is its last 100 closes.
+    assert meta["forecast_window"]["training_window_start_date"] == window.index[
+        -100
+    ].strftime("%Y-%m-%d")
+
+
+def test_ts_config_is_required(upload_env, deps):
+    _, _, _, kwargs = deps
+    del kwargs["ts_config"]
+    with pytest.raises(TypeError, match="ts_config"):
+        run_pipeline(**kwargs)
 
 
 def test_short_cached_download_is_downloaded_again_once(upload_env, deps):

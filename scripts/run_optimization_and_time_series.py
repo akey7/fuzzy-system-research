@@ -7,11 +7,15 @@ results for the frontend.
 Run from the repository root:
 
     uv run python scripts/run_optimization_and_time_series.py [--no-upload]
-        [--retrain-arima] [--refresh-data] [--workers N]
+        [--retrain-arima] [--refresh-data] [--workers N] [--config PATH]
+
+Model settings are read from config/modeling_and_optimization.yml (or
+--config PATH).
 """
 
 import argparse
 from dotenv import load_dotenv
+from fuzzy_system_research.config import DEFAULT_CONFIG_PATH, load_config
 from fuzzy_system_research.pipeline import run_pipeline
 
 
@@ -60,20 +64,34 @@ def parse_args() -> argparse.Namespace:
             "CPUs; 1 trains everything in this process."
         ),
     )
+    parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        metavar="PATH",
+        help=(
+            "Model settings file, relative to the working directory. Defaults to "
+            f"{DEFAULT_CONFIG_PATH}."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     """
-    Load .env and run the pipeline with the command line options.
+    Load the configuration file and .env, then run the pipeline with the
+    command line options. The configuration is checked first, so a bad file
+    fails before any download.
     """
     args = parse_args()
+    config = load_config(args.config)
+    print(f"Using settings from {args.config}: {config.time_series_models}")
     load_dotenv()
     result = run_pipeline(
         upload=not args.no_upload,
         retrain_arima=args.retrain_arima,
         refresh_data=args.refresh_data,
         arima_workers=args.workers,
+        ts_config=config.time_series_models,
     )
     print(f"Done: {result.as_of} (ARIMA {'trained' if result.trained_arima else 'cached'})")
     for key in result.uploaded:

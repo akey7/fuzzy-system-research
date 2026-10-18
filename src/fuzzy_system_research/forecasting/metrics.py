@@ -29,8 +29,6 @@ from fuzzy_system_research.forecasting.arima_models import PRICE_DIFFERENCING_OR
 from fuzzy_system_research.forecasting.ticker_predict import (
     ARIMA_MAX_P,
     ARIMA_MAX_Q,
-    EVALUATION_DAYS,
-    TRAINING_WINDOW_RETURNS,
 )
 
 FORECAST_HORIZON_TRADING_DAYS = 1
@@ -93,9 +91,7 @@ def directional_accuracy(
     return float(np.mean(predicted_move[moved] == actual_move[moved])), n_scored
 
 
-def ticker_metrics(
-    forecasts_df: pd.DataFrame, ticker: str, eval_days: int = EVALUATION_DAYS
-) -> dict:
+def ticker_metrics(forecasts_df: pd.DataFrame, ticker: str, eval_days: int) -> dict:
     """
     Metrics for one ticker over the last eval_days rows that have an actual
     close. Of those, only rows that also have both an ARIMA and a naive
@@ -111,8 +107,9 @@ def ticker_metrics(
     ticker : str
         The ticker T, as in the column names.
 
-    eval_days : int, optional
-        Number of most recent days with an actual close to consider.
+    eval_days : int
+        Number of most recent days with an actual close to consider
+        (TimeSeriesConfig.evaluation_window_length).
 
     Returns
     -------
@@ -155,10 +152,16 @@ def ticker_metrics(
     }
 
 
-def models_block() -> dict:
+def models_block(training_window_returns: int) -> dict:
     """
-    How the two forecasts are made, from the constants the code uses, so the
-    metadata file explains itself. Pure function.
+    How the two forecasts are made, from the constants and settings the code
+    uses, so the metadata file explains itself. Pure function.
+
+    Parameters
+    ----------
+    training_window_returns : int
+        Daily log returns in each training window, on which every candidate
+        order is scored.
     """
     return {
         "arima": {
@@ -176,7 +179,7 @@ def models_block() -> dict:
             ),
             # Kept so readers of this key still find an integer: candidates
             # are now scored on one window, the whole training window.
-            "order_selection_subwindow_returns": TRAINING_WINDOW_RETURNS,
+            "order_selection_subwindow_returns": training_window_returns,
             "order_selection_tie_break": "fewer parameters (p + q), then lower p",
         },
         "naive": {
@@ -190,7 +193,9 @@ def build_forecast_metadata(
     tickers: list[str],
     training_window_start: pd.Timestamp,
     training_window_end: pd.Timestamp,
-    eval_days: int = EVALUATION_DAYS,
+    *,
+    eval_days: int,
+    training_window_returns: int,
 ) -> dict:
     """
     Build the contents of all_forecasts_metadata.yml. Pure function.
@@ -208,8 +213,13 @@ def build_forecast_metadata(
     training_window_start, training_window_end : pd.Timestamp
         First and last session of the live forecast's training window.
 
-    eval_days : int, optional
-        Number of most recent days with an actual close to score.
+    eval_days : int
+        Number of most recent days with an actual close to score
+        (TimeSeriesConfig.evaluation_window_length).
+
+    training_window_returns : int
+        Daily log returns in each training window
+        (TimeSeriesConfig.training_window_returns).
 
     Returns
     -------
@@ -229,7 +239,7 @@ def build_forecast_metadata(
             "training_window_start_date": _date_str(training_window_start),
             "training_window_end_date": _date_str(training_window_end),
             "forecast_date": _date_str(forecasts_df.index[-1]),
-            "training_window_returns": TRAINING_WINDOW_RETURNS,
+            "training_window_returns": training_window_returns,
             "horizon_trading_days": FORECAST_HORIZON_TRADING_DAYS,
         },
         "evaluation_window": {
@@ -245,7 +255,7 @@ def build_forecast_metadata(
             "skill": "ratio",
             "directional_accuracy": "fraction",
         },
-        "models": models_block(),
+        "models": models_block(training_window_returns),
         "ticker_metrics": per_ticker,
     }
 
