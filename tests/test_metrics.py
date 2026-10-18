@@ -147,8 +147,16 @@ def two_ticker_table() -> pd.DataFrame:
 def test_build_forecast_metadata_structure():
     table = two_ticker_table()
     start, end = table.index[1], table.index[-2]
-    meta = build_forecast_metadata(table, ["BBB", "AAA", "ZZZ"], start, end)
+    meta = build_forecast_metadata(
+        table,
+        ["BBB", "AAA", "ZZZ"],
+        start,
+        end,
+        eval_days=20,
+        training_window_returns=251,
+    )
     assert set(meta["ticker_metrics"]) == {"aaa", "bbb"}  # Lowercase; ZZZ skipped.
+    assert meta["evaluation_window"]["target_trading_days"] == 20
     fw = meta["forecast_window"]
     assert fw["training_window_start_date"] == start.strftime("%Y-%m-%d")
     assert fw["training_window_end_date"] == end.strftime("%Y-%m-%d")
@@ -168,9 +176,32 @@ def test_build_forecast_metadata_structure():
     assert meta["forecast_window"]["training_window_returns"] == 251
 
 
+def test_build_forecast_metadata_reports_the_settings_it_is_given():
+    table = two_ticker_table()
+    meta = build_forecast_metadata(
+        table,
+        ["AAA"],
+        table.index[1],
+        table.index[-2],
+        eval_days=5,
+        training_window_returns=99,
+    )
+    assert meta["forecast_window"]["training_window_returns"] == 99
+    assert meta["models"]["arima"]["order_selection_subwindow_returns"] == 99
+    assert meta["evaluation_window"]["target_trading_days"] == 5
+    assert meta["ticker_metrics"]["aaa"]["n_evaluated"] == 5
+
+
 def test_forecast_metadata_yaml_round_trip(tmp_path):
     table = two_ticker_table()
-    meta = build_forecast_metadata(table, ["AAA", "BBB"], table.index[1], table.index[-2])
+    meta = build_forecast_metadata(
+        table,
+        ["AAA", "BBB"],
+        table.index[1],
+        table.index[-2],
+        eval_days=20,
+        training_window_returns=251,
+    )
     path = tmp_path / "all_forecasts_metadata.yml"
     write_forecast_metadata(meta, str(path))
     loaded = yaml.safe_load(path.read_text())

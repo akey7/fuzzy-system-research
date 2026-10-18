@@ -43,7 +43,9 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 
 | File | Role | Run directly? | Uploads? |
 | --- | --- | --- | --- |
-| `scripts/run_optimization_and_time_series.py` | The single backend entry point: parses `--no-upload`, `--retrain-arima`, `--refresh-data`, `--workers`, loads `.env`, calls `pipeline.run_pipeline()` | Yes | Yes |
+| `scripts/run_optimization_and_time_series.py` | The single backend entry point: parses `--no-upload`, `--retrain-arima`, `--refresh-data`, `--workers`, `--config`, loads the config file and `.env`, calls `pipeline.run_pipeline(ts_config=...)` | Yes | Yes |
+| `config/modeling_and_optimization.yml` | Model settings (`time_series_models.training_window_length` in closes, `evaluation_window_length` in days); checked in; changing a value changes uploads | No | No |
+| `src/fuzzy_system_research/config.py` | Strict loader (`load_config`, pure `parse_config`) → frozen `TimeSeriesConfig`; read once by the script and passed down, never at import time | No | No |
 | `scripts/ticker_download_to_csv.py` | Download one symbol from Massive.com to CSV | Yes | No |
 | `src/fuzzy_system_research/data/ticker_download_manager.py` | Download new data or retrieve cached data | No | No |
 | `src/fuzzy_system_research/data/date_manager.py` | Date and business-day calculations (NYSE calendar via `exchange_calendars`) | No | No |
@@ -52,8 +54,8 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 | `src/fuzzy_system_research/optimization/workflow.py` | `run_portfolio_optimization()` → `OptimizationResult` (annualized); `.h5`/`.yml` writers | No | No |
 | `src/fuzzy_system_research/forecasting/arima_models.py` | ARIMA training on price data | No | No |
 | `src/fuzzy_system_research/forecasting/ticker_predict.py` | `ArimaWalkForward` (walk-forward ARIMA, all windows fit in one `ProcessPoolExecutor` sized by `default_worker_count()`, half the logical CPUs) and `load_or_train_forecasts()` (per-date cache) | No | No |
-| `src/fuzzy_system_research/forecasting/metrics.py` | Pure forecast-accuracy metrics (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) over the last 20 scored days; builds and writes `all_forecasts_metadata.yml` | No | No |
-| `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (277 sessions; a too-short cache is downloaded again once) → ARIMA on the last 272 (one-year windows, order by lowest BIC) → forecast metrics → optimization on the last 252 → uploads (csv, forecast metrics yml, h5, optimization yml last) only if all succeed; dependencies injectable for tests | No | Yes |
+| `src/fuzzy_system_research/forecasting/metrics.py` | Pure forecast-accuracy metrics (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) over the last `evaluation_window_length` scored days; builds and writes `all_forecasts_metadata.yml` | No | No |
+| `src/fuzzy_system_research/pipeline.py` | `run_pipeline()`: one download (277 sessions with the current config; a too-short cache is downloaded again once) → ARIMA on the last training + evaluation sessions (272; order by lowest BIC) → forecast metrics → optimization on the last 252 → uploads (csv, forecast metrics yml, h5, optimization yml last) only if all succeed; dependencies injectable for tests | No | Yes |
 | `src/fuzzy_system_research/storage/layout.py` | Pure helpers for dated `output/` paths and bucket keys; the single source of truth for both layouts | No | No |
 | `src/fuzzy_system_research/storage/s3_uploader.py` | S3/Spaces upload helper | No | Used by others |
 

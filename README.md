@@ -37,10 +37,28 @@ Options:
 | `--retrain-arima` | Retrain the ARIMA models even if forecasts for the as-of date are cached. |
 | `--refresh-data` | Download prices again even if today's download is cached. |
 | `--workers N` | Number of worker processes for ARIMA training. Defaults to half the logical CPUs (for example 8 on a 16-thread Intel CPU, 5 on a 10-core M4). `--workers 1` trains everything in one process. The forecasts do not depend on this setting. |
+| `--config PATH` | Model settings file to use instead of `config/modeling_and_optimization.yml` (see below). |
 
 Nothing is uploaded unless every step succeeds. If a later step fails, the ARIMA forecasts already written to `output/` are reused on the next run.
 
-Always run scripts from the repository root, because the scripts read and write `input/` and `output/` relative to the current working directory.
+Always run scripts from the repository root, because the scripts read and write `input/` and `output/` (and read `config/`) relative to the current working directory.
+
+### Model settings
+
+Time series settings live in `config/modeling_and_optimization.yml`, which is checked into the repository:
+
+```yaml
+time_series_models:
+  training_window_length: 252    # closes (trading sessions) per ARIMA training window
+  evaluation_window_length: 20   # most recent trading days backtested and scored
+```
+
+- `training_window_length` counts **closing prices**, so 252 closes give 251 daily log returns, about one trading year. It must be at least 30.
+- `evaluation_window_length` is the number of backtest days in `all_forecasts.csv` (plus the live forecast) and in the metrics of `all_forecasts_metadata.yml`. It must be at least 1.
+- Both keys are required, and unknown keys are rejected, so a typo stops the run before any download instead of silently using a default.
+- The run downloads enough history for both settings and the optimization's 252 sessions.
+
+Changing a value changes what is uploaded. Run with `--retrain-arima` afterwards, because the cached forecasts for a date are otherwise reused, and update `INTERFACE_CONTRACT.md` wherever it documents the value.
 
 Run development tools the same way, for example `uv run pytest` or `uv run black .`.
 
@@ -132,6 +150,7 @@ These modules are imported by the scripts and are not meant to be executed direc
 
 | Module (under `src/fuzzy_system_research/`) | Purpose                                                                                                                                                 | Uploads to front end?                |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `config.py`                                 | Reads and strictly validates `config/modeling_and_optimization.yml` into `TimeSeriesConfig`.                                                            | No                                   |
 | `data/ticker_download_manager.py`           | Downloads new data from Massive.com or retrieves old data from the cache.                                                                               | No                                   |
 | `data/date_manager.py`                      | Date and business day calculations on the NYSE trading calendar (via `exchange_calendars`).                                                             | No                                   |
 | `data/prices.py`                            | Pivots downloaded prices to a wide table and selects the most recent trading sessions.                                                                 | No                                   |
@@ -139,7 +158,7 @@ These modules are imported by the scripts and are not meant to be executed direc
 | `optimization/workflow.py`                  | One full optimization run from prices to annualized results, plus the `.h5` and `.yml` writers.                                                        | No                                   |
 | `forecasting/arima_models.py`               | Trains ARIMA models on price data.                                                                                                                      | No                                   |
 | `forecasting/ticker_predict.py`             | `ArimaWalkForward`: walk-forward ARIMA training over rolling windows; `load_or_train_forecasts` caches the result.                                      | No                                   |
-| `forecasting/metrics.py`                    | Accuracy of the ARIMA and naive forecasts over the last 20 trading days (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) for `all_forecasts_metadata.yml`. | No |
+| `forecasting/metrics.py`                    | Accuracy of the ARIMA and naive forecasts over the configured number of most recent trading days (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) for `all_forecasts_metadata.yml`. | No |
 | `pipeline.py`                               | Orchestrates one backend run and its uploads (`csv`, then `.h5`, then `.yml` last).                                                                    | Yes                                  |
 | `storage/layout.py`                         | Builds the dated `output/` paths and matching bucket keys (`YYYY-MM-DD/<file>`).                                                                        | No                                   |
 | `storage/s3_uploader.py`                    | Uploads files to the one DigitalOcean Space (`FSF_FRONT_END_BUCKET_NAME`) by full object key; rejects non-region-only endpoints.                       | Yes (other modules use it to upload) |

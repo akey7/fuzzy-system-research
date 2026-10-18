@@ -15,17 +15,8 @@ from fuzzy_system_research.forecasting.arima_models import (
 )
 from fuzzy_system_research.storage.layout import ensure_parent_dir
 
-# Returns in each walk-forward training window: one trading year of closes
-# (252, from the window's last session back 251 sessions) gives 251 daily log
-# returns.
-TRAINING_WINDOW_RETURNS = 251
-# Backtest days scored in all_forecasts_metadata.yml.
-EVALUATION_DAYS = 20
-# Most recent trading sessions of price data the walk-forward ARIMA uses: one
-# training window's prices (TRAINING_WINDOW_RETURNS + 1) plus one session per
-# scored day, giving EVALUATION_DAYS forecasts with actuals plus the live
-# forecast. 251 + 20 + 1 = 272.
-ARIMA_WINDOW_SESSIONS = TRAINING_WINDOW_RETURNS + EVALUATION_DAYS + 1
+# The training window length and the number of scored backtest days come from
+# the configuration file (see fuzzy_system_research.config.TimeSeriesConfig).
 # ARIMA order search: p in range(ARIMA_MAX_P), q in range(ARIMA_MAX_Q),
 # excluding (0, 0). Each candidate is fit once on the whole training window
 # and the lowest BIC wins (see ArimaModels.select_order()).
@@ -168,12 +159,16 @@ class ArimaWalkForward:
     over sliding windows of trading days. Does no downloading or uploading.
     """
 
-    def __init__(self, n_workers: int | None = None):
+    def __init__(self, training_window_returns: int, n_workers: int | None = None):
         """
         Instantiate with the DateManager used to build the training windows.
 
         Parameters
         ----------
+        training_window_returns : int
+            Daily log returns in each training window (one fewer than its
+            closes), normally TimeSeriesConfig.training_window_returns.
+
         n_workers : int, optional
             Number of worker processes for train_arima_models(). Defaults to
             None, which means default_worker_count() (half the logical CPUs),
@@ -181,10 +176,12 @@ class ArimaWalkForward:
             process.
         """
         self.dm = DateManager()
+        self.training_window_returns = training_window_returns
         self.n_workers = n_workers
 
+    @staticmethod
     def training_window_start_end(
-        self, index: pd.DatetimeIndex, num_days: int = 20
+        index: pd.DatetimeIndex, num_days: int
     ) -> list[list[pd.Timestamp]]:
         """
         Return the walk-forward training windows as [start, end] timestamp
@@ -204,8 +201,8 @@ class ArimaWalkForward:
         index : pd.DatetimeIndex
             Sorted dates of the price data, one per observed trading session.
 
-        num_days : int, optional
-            Number of returns in each window. Defaults to 20.
+        num_days : int
+            Number of returns in each window.
 
         Returns
         -------
@@ -227,7 +224,6 @@ class ArimaWalkForward:
     def train_arima_models(
         self,
         df,
-        n_business_days=TRAINING_WINDOW_RETURNS,
         max_p=ARIMA_MAX_P,
         max_q=ARIMA_MAX_Q,
     ):
@@ -245,7 +241,8 @@ class ArimaWalkForward:
         step (prices to daily log returns) happens inside ArimaModels.fit(),
         via ArimaModels.to_log_returns().
 
-        Each window is resampled to the NYSE trading calendar, so one model
+        Each window holds self.training_window_returns returns (one more
+        close), and is resampled to the NYSE trading calendar, so one model
         time step is one trading session: holidays are skipped rather than
         treated as missing observations.
 
@@ -260,10 +257,6 @@ class ArimaWalkForward:
         ----------
         df : pd.DataFrame
             Wide format DataFrame of adjusted close data.
-
-        n_business_days : int, optional
-            Number of returns in each training window. Defaults to
-            TRAINING_WINDOW_RETURNS (251), one trading year of closes.
 
         max_p : int, optional
             Exclusive upper bound on p. Defaults to ARIMA_MAX_P (2), so p is 0 or 1.
@@ -287,7 +280,9 @@ class ArimaWalkForward:
             data is missing); and T (the actual price, missing on the final
             row).
         """
-        timestamp_ranges = self.training_window_start_end(df.index, n_business_days)
+        timestamp_ranges = self.training_window_start_end(
+            df.index, self.training_window_returns
+        )
         # Every ticker's training windows, in output order.
         windows_by_ticker: dict[str, list[pd.Series]] = {}
         for ticker in df.columns:
@@ -380,7 +375,8 @@ def load_or_train_forecasts(
     window_df: pd.DataFrame,
     path: str,
     retrain: bool = False,
-    trainer: ForecastTrainer | None = None,
+    *,
+    trainer: ForecastTrainer,
 ) -> bool:
     """
     Make sure the forecasts CSV for a run exists at path, training ARIMA
@@ -393,7 +389,7 @@ def load_or_train_forecasts(
     ----------
     window_df : pd.DataFrame
         Wide adjusted close prices to train on, normally the last
-        ARIMA_WINDOW_SESSIONS trading sessions.
+        TimeSeriesConfig.arima_window_sessions trading sessions.
 
     path : str
         Local path of the forecasts CSV. Missing folders are created.
@@ -402,8 +398,9 @@ def load_or_train_forecasts(
         If True, train and overwrite the CSV even if it exists. Defaults to
         False.
 
-    trainer : ForecastTrainer, optional
-        Object that trains the models. Defaults to a new ArimaWalkForward.
+    trainer : ForecastTrainer
+        Object that trains the models, e.g. an ArimaWalkForward built with
+        the configured training window.
 
     Returns
     -------
@@ -414,7 +411,6 @@ def load_or_train_forecasts(
     if os.path.exists(path) and not retrain:
         print(f"Using cached forecasts {path}")
         return False
-    trainer = trainer if trainer is not None else ArimaWalkForward()
     forecasts_df = trainer.train_arima_models(window_df)
     forecasts_df.to_csv(ensure_parent_dir(path), index=True)
     print(f"Saved {path}")

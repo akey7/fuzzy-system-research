@@ -3,11 +3,14 @@ One backend run: download (or load cached) prices, ARIMA forecasts (or load
 cached), forecast metrics, portfolio optimization, then upload all four
 frontend files.
 
+The time series settings (training window, scored days) come from the
+configuration file, passed in as a TimeSeriesConfig (see config.py).
+
 Order of operations:
-1. Price data: one download of PRICE_DOWNLOAD_SESSIONS trading days, cached
-   per run date in input/annual/. A cached download too short for the
+1. Price data: one download of price_download_sessions() trading days,
+   cached per run date in input/annual/. A cached download too short for the
    steps below is downloaded again once.
-2. ARIMA: trained on the last ARIMA_WINDOW_SESSIONS sessions of that data,
+2. ARIMA: trained on the last TimeSeriesConfig.arima_window_sessions of that data,
    cached as output/time_series/<as-of date>/all_forecasts.csv. Metrics on
    those forecasts are written next to it as all_forecasts_metadata.yml.
 3. Optimization: on the last OPTIMIZATION_LOOKBACK_SESSIONS sessions, written
@@ -26,12 +29,11 @@ from dataclasses import dataclass
 from typing import Callable, Protocol
 import numpy as np
 import pandas as pd
+from fuzzy_system_research.config import TimeSeriesConfig
 from fuzzy_system_research.data.date_manager import DateManager
 from fuzzy_system_research.data.prices import last_n_sessions, pivot_close_wide
 from fuzzy_system_research.data.ticker_download_manager import TickerDownloadManager
 from fuzzy_system_research.forecasting.ticker_predict import (
-    ARIMA_WINDOW_SESSIONS,
-    TRAINING_WINDOW_RETURNS,
     ArimaWalkForward,
     ForecastTrainer,
     load_or_train_forecasts,
@@ -64,14 +66,28 @@ from fuzzy_system_research.storage.s3_uploader import BUCKET_NAME_ENV, S3Uploade
 
 # Trading sessions of price data the portfolio optimization uses (one year).
 OPTIMIZATION_LOOKBACK_SESSIONS = 252
-# Trading sessions every run needs: enough for both the optimization and the
-# walk-forward ARIMA (ARIMA_WINDOW_SESSIONS = 272).
-REQUIRED_SESSIONS = max(OPTIMIZATION_LOOKBACK_SESSIONS, ARIMA_WINDOW_SESSIONS)
-# Extra sessions requested from the API beyond REQUIRED_SESSIONS, so that an
+# Extra sessions requested from the API beyond required_sessions(), so that an
 # off-by-one in counting sessions, or a session missing from the data, does
 # not leave the run short.
 PRICE_DOWNLOAD_MARGIN_SESSIONS = 5
-PRICE_DOWNLOAD_SESSIONS = REQUIRED_SESSIONS + PRICE_DOWNLOAD_MARGIN_SESSIONS
+
+
+def required_sessions(ts_config: TimeSeriesConfig) -> int:
+    """
+    Trading sessions every run needs: enough for both the optimization and
+    the walk-forward ARIMA (272 with the current settings). Pure function.
+    """
+    return max(OPTIMIZATION_LOOKBACK_SESSIONS, ts_config.arima_window_sessions)
+
+
+def price_download_sessions(ts_config: TimeSeriesConfig) -> int:
+    """
+    Trading sessions requested from the API: required_sessions() plus
+    PRICE_DOWNLOAD_MARGIN_SESSIONS (277 with the current settings). Pure
+    function.
+    """
+    return required_sessions(ts_config) + PRICE_DOWNLOAD_MARGIN_SESSIONS
+
 
 PRICE_DOWNLOAD_FOLDER = os.path.join("input", "annual")
 
@@ -132,6 +148,7 @@ def run_pipeline(
     refresh_data: bool = False,
     arima_workers: int | None = None,
     *,
+    ts_config: TimeSeriesConfig,
     tdm: TickerDownloadManager | None = None,
     trainer: ForecastTrainer | None = None,
     uploader: Uploader | None = None,
@@ -165,13 +182,19 @@ def run_pipeline(
     refresh_data : bool, optional
         If True, download prices again even if today's download is cached.
         Even when False, a cached download with fewer than
-        REQUIRED_SESSIONS sessions (e.g. one written before the ARIMA window
-        grew) is downloaded again once.
+        required_sessions() sessions (e.g. one written before the ARIMA
+        window grew) is downloaded again once.
 
     arima_workers : int, optional
         Number of worker processes for ARIMA training. Defaults to None,
         which means half the logical CPUs (see default_worker_count() in
         forecasting/ticker_predict.py). Ignored when trainer is given.
+
+    ts_config : TimeSeriesConfig
+        Time series settings from the configuration file: the training
+        window length and the number of scored backtest days. Required; it
+        has no default, so the configuration file is the one source of
+        truth.
 
     tdm, trainer, uploader, risk_free_rate_getter, dm : optional
         Dependencies, defaulting to the real implementations. Tests pass
@@ -193,25 +216,28 @@ def run_pipeline(
         uploader = uploader if uploader is not None else S3Uploader()
 
     # 1. Prices
+    n_required = required_sessions(ts_config)
+    n_download = price_download_sessions(ts_config)
+    arima_sessions = ts_config.arima_window_sessions
     tdm = tdm if tdm is not None else TickerDownloadManager(PRICE_DOWNLOAD_FOLDER)
     dm = dm if dm is not None else DateManager()
     long_df, start_date, end_date = tdm.get_latest_tickers(
-        days_in_past=PRICE_DOWNLOAD_SESSIONS, use_cache=not refresh_data
+        days_in_past=n_download, use_cache=not refresh_data
     )
     wide_df = pivot_close_wide(long_df)
-    if len(wide_df) < REQUIRED_SESSIONS and not refresh_data:
+    if len(wide_df) < n_required and not refresh_data:
         print(
             f"Cached prices cover {len(wide_df)} sessions, fewer than the "
-            f"{REQUIRED_SESSIONS} needed; downloading again."
+            f"{n_required} needed; downloading again."
         )
         long_df, start_date, end_date = tdm.get_latest_tickers(
-            days_in_past=PRICE_DOWNLOAD_SESSIONS, use_cache=False
+            days_in_past=n_download, use_cache=False
         )
         wide_df = pivot_close_wide(long_df)
-    if len(wide_df) < REQUIRED_SESSIONS:
+    if len(wide_df) < n_required:
         raise ValueError(
             f"Downloaded prices cover {len(wide_df)} sessions, fewer than the "
-            f"{REQUIRED_SESSIONS} needed for ARIMA ({ARIMA_WINDOW_SESSIONS}) and "
+            f"{n_required} needed for ARIMA ({arima_sessions}) and "
             f"the optimization ({OPTIMIZATION_LOOKBACK_SESSIONS})."
         )
     print(f"Loaded data from {start_date} to {end_date}")
@@ -222,21 +248,24 @@ def run_pipeline(
     forecasts_path = local_output_path(
         TIME_SERIES, as_of, ALL_FORECASTS_FILENAME, output_root
     )
-    arima_window_df = last_n_sessions(wide_df, ARIMA_WINDOW_SESSIONS)
+    arima_window_df = last_n_sessions(wide_df, arima_sessions)
+    if trainer is None:
+        trainer = ArimaWalkForward(
+            training_window_returns=ts_config.training_window_returns,
+            n_workers=arima_workers,
+        )
     trained_arima = load_or_train_forecasts(
         arima_window_df,
         forecasts_path,
         retrain=retrain_arima,
-        trainer=(
-            trainer if trainer is not None else ArimaWalkForward(n_workers=arima_workers)
-        ),
+        trainer=trainer,
     )
 
     # 2b. Forecast metrics, from the CSV exactly as written (also for cached
     # forecasts). The live forecast's training window is the last window.
     forecasts_df = pd.read_csv(forecasts_path, index_col="pred_date", parse_dates=True)
-    window_start, window_end = ArimaWalkForward().training_window_start_end(
-        arima_window_df.index, TRAINING_WINDOW_RETURNS
+    window_start, window_end = ArimaWalkForward.training_window_start_end(
+        arima_window_df.index, ts_config.training_window_returns
     )[-1]
     forecasts_metadata_path = ensure_parent_dir(
         local_output_path(
@@ -244,7 +273,14 @@ def run_pipeline(
         )
     )
     write_forecast_metadata(
-        build_forecast_metadata(forecasts_df, tdm.tickers, window_start, window_end),
+        build_forecast_metadata(
+            forecasts_df,
+            tdm.tickers,
+            window_start,
+            window_end,
+            eval_days=ts_config.evaluation_window_length,
+            training_window_returns=ts_config.training_window_returns,
+        ),
         forecasts_metadata_path,
     )
     print(f"Saved {forecasts_metadata_path}")
