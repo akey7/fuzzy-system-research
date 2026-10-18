@@ -233,6 +233,15 @@ def test_get_risk_free_rate_replaces_cached_nan(in_tmp_input, fake_fred):
         assert json.load(f)["risk_free_rate"] == pytest.approx(4.07)
 
 
+def test_get_risk_free_rate_creates_missing_input_folder(tmp_path, monkeypatch, fake_fred):
+    # A fresh checkout has no input/ folder at all.
+    monkeypatch.chdir(tmp_path)
+    data = get_risk_free_rate(FakeDateManager())
+    cache_path = os.path.join("input", "Risk Free Rate 2026-10-14.json")
+    with open(cache_path, encoding="utf-8") as f:
+        assert json.load(f) == data
+
+
 def test_get_risk_free_rate_with_no_valid_rate_raises_and_writes_nothing(
     in_tmp_input, fake_fred
 ):

@@ -1,0 +1,186 @@
+"""
+Tests for fuzzy_system_research.config: strict parsing and validation of the
+model settings, loading from a YAML file, and the repository's own
+config/modeling_and_optimization.yml.
+
+Files are written only under pytest's tmp_path. The repository's config file
+is read (never written) to catch a broken file before a long run; input/ and
+output/ are never touched.
+"""
+
+from pathlib import Path
+
+import pytest
+
+from fuzzy_system_research.config import (
+    DEFAULT_CONFIG_PATH,
+    MIN_TRAINING_WINDOW_LENGTH,
+    ConfigError,
+    ModelingConfig,
+    TimeSeriesConfig,
+    load_config,
+    parse_config,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def raw(training=252, evaluation=20, **extra) -> dict:
+    """A parsed YAML document; extra keys go under time_series_models."""
+    return {
+        "time_series_models": {
+            "training_window_length": training,
+            "evaluation_window_length": evaluation,
+            **extra,
+        }
+    }
+
+
+# parse_config and TimeSeriesConfig
+
+
+def test_parse_config_reads_both_values():
+    config = parse_config(raw())
+    assert config == ModelingConfig(
+        time_series_models=TimeSeriesConfig(
+            training_window_length=252, evaluation_window_length=20
+        )
+    )
+
+
+def test_derived_window_sizes():
+    ts = TimeSeriesConfig(training_window_length=252, evaluation_window_length=20)
+    assert ts.training_window_returns == 251  # One fewer return than closes.
+    assert ts.arima_window_sessions == 272  # 252 closes + 20 scored days.
+
+
+def test_config_is_immutable():
+    ts = TimeSeriesConfig(training_window_length=252, evaluation_window_length=20)
+    with pytest.raises(AttributeError):
+        ts.training_window_length = 100
+
+
+@pytest.mark.parametrize("document", [None, [], "text", 5])
+def test_document_must_be_a_mapping(document):
+    with pytest.raises(ConfigError, match="mapping"):
+        parse_config(document)
+
+
+def test_missing_section_is_rejected():
+    with pytest.raises(ConfigError, match="missing required key.*time_series_models"):
+        parse_config({})
+
+
+def test_unknown_top_level_section_is_rejected():
+    with pytest.raises(ConfigError, match="unknown key.*portfolio"):
+        parse_config({**raw(), "portfolio": {}})
+
+
+def test_section_must_be_a_mapping():
+    with pytest.raises(ConfigError, match="time_series_models must be a mapping"):
+        parse_config({"time_series_models": None})
+
+
+@pytest.mark.parametrize("key", ["training_window_length", "evaluation_window_length"])
+def test_missing_key_is_rejected(key):
+    document = raw()
+    del document["time_series_models"][key]
+    with pytest.raises(ConfigError, match=f"missing required key.*{key}"):
+        parse_config(document)
+
+
+def test_misspelled_key_is_rejected_not_ignored():
+    document = raw()
+    document["time_series_models"]["training_window_lenght"] = 100
+    with pytest.raises(ConfigError, match="unknown key.*training_window_lenght"):
+        parse_config(document)
+
+
+def test_non_string_unknown_key_is_reported():
+    document = raw()
+    document["time_series_models"][7] = "x"  # YAML keys need not be strings.
+    with pytest.raises(ConfigError, match="unknown key.*7"):
+        parse_config(document)
+
+
+@pytest.mark.parametrize("value", [252.0, "252", True, None, [252]])
+def test_training_window_length_must_be_an_integer(value):
+    with pytest.raises(ConfigError, match="training_window_length must be an integer"):
+        parse_config(raw(training=value))
+
+
+@pytest.mark.parametrize("value", [20.0, "20", True, None])
+def test_evaluation_window_length_must_be_an_integer(value):
+    with pytest.raises(ConfigError, match="evaluation_window_length must be an integer"):
+        parse_config(raw(evaluation=value))
+
+
+def test_training_window_length_has_a_minimum():
+    parse_config(raw(training=MIN_TRAINING_WINDOW_LENGTH))  # Accepted.
+    with pytest.raises(ConfigError, match="at least"):
+        parse_config(raw(training=MIN_TRAINING_WINDOW_LENGTH - 1))
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_evaluation_window_length_must_be_positive(value):
+    with pytest.raises(ConfigError, match="at least 1"):
+        parse_config(raw(evaluation=value))
+
+
+def test_direct_construction_is_validated_too():
+    with pytest.raises(ConfigError):
+        TimeSeriesConfig(training_window_length=10, evaluation_window_length=20)
+
+
+# load_config
+
+
+def test_load_config_reads_a_yaml_file(tmp_path):
+    path = tmp_path / "settings.yml"
+    path.write_text(
+        "time_series_models:\n"
+        "  training_window_length: 100\n"
+        "  evaluation_window_length: 10\n",
+        encoding="utf-8",
+    )
+    ts = load_config(str(path)).time_series_models
+    assert ts == TimeSeriesConfig(training_window_length=100, evaluation_window_length=10)
+
+
+def test_load_config_missing_file_names_the_path(tmp_path):
+    path = tmp_path / "nowhere.yml"
+    with pytest.raises(ConfigError, match="not found.*nowhere.yml"):
+        load_config(str(path))
+
+
+def test_load_config_invalid_yaml_names_the_path(tmp_path):
+    path = tmp_path / "broken.yml"
+    path.write_text("time_series_models: [unclosed\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="broken.yml.*not valid YAML"):
+        load_config(str(path))
+
+
+def test_load_config_validation_error_names_the_path(tmp_path):
+    path = tmp_path / "bad.yml"
+    path.write_text(
+        "time_series_models:\n  training_window_length: 252\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="bad.yml.*evaluation_window_length"):
+        load_config(str(path))
+
+
+def test_empty_file_is_rejected(tmp_path):
+    path = tmp_path / "empty.yml"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(ConfigError, match="mapping"):
+        load_config(str(path))
+
+
+# The repository's own configuration file
+
+
+def test_repository_config_file_is_valid():
+    # Checks that the file parses and validates, not its values, so they
+    # can be changed freely.
+    config = load_config(str(REPO_ROOT / DEFAULT_CONFIG_PATH))
+    assert isinstance(config.time_series_models, TimeSeriesConfig)
