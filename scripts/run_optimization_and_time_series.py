@@ -7,12 +7,22 @@ results for the frontend.
 Run from the repository root:
 
     uv run python scripts/run_optimization_and_time_series.py [--no-upload]
-        [--retrain-arima] [--refresh-data]
+        [--retrain-arima] [--refresh-data] [--workers N]
 """
 
 import argparse
 from dotenv import load_dotenv
 from fuzzy_system_research.pipeline import run_pipeline
+
+
+def positive_int(value: str) -> int:
+    """
+    argparse type for an integer of at least 1.
+    """
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {number}")
+    return number
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,6 +50,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Download prices again even if today's download is cached.",
     )
+    parser.add_argument(
+        "--workers",
+        type=positive_int,
+        default=None,
+        metavar="N",
+        help=(
+            "Worker processes for ARIMA training. Defaults to half the logical "
+            "CPUs; 1 trains everything in this process."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -53,6 +73,7 @@ def main() -> None:
         upload=not args.no_upload,
         retrain_arima=args.retrain_arima,
         refresh_data=args.refresh_data,
+        arima_workers=args.workers,
     )
     print(f"Done: {result.as_of} (ARIMA {'trained' if result.trained_arima else 'cached'})")
     for key in result.uploaded:

@@ -160,6 +160,12 @@ def test_build_forecast_metadata_structure():
     assert meta["models"]["arima"]["p_values"] == [0, 1]
     assert meta["models"]["arima"]["q_values"] == [0, 1]
     assert meta["models"]["arima"]["excluded_orders"] == [[0, 0]]
+    assert meta["models"]["arima"]["order_selection_tie_break"] == (
+        "fewer parameters (p + q), then lower p"
+    )
+    # Candidates are scored on the whole training window (251 returns).
+    assert meta["models"]["arima"]["order_selection_subwindow_returns"] == 251
+    assert meta["forecast_window"]["training_window_returns"] == 251
 
 
 def test_forecast_metadata_yaml_round_trip(tmp_path):

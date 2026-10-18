@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 22 |
-| **Last updated** | 2026-10-15 |
+| **Contract version** | 24 |
+| **Last updated** | 2026-10-17 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
 This file is stored **byte-for-byte identically** in both repos. It describes the files the backend uploads to one S3-compatible bucket (a DigitalOcean Space, accessed with `boto3`) and the frontend reads. Treat it as a public API.
@@ -295,7 +295,7 @@ The frontend may adapt this wording, but it must keep its meaning: the model is 
 
 **Text near the forecast plot:**
 
-> **How these forecasts are made.** Each point is a one-trading-day-ahead forecast of the closing price, made only with data available before that day. For every day and ticker, an ARIMA model is refit on the previous 20 trading days, and its orders p and q are chosen again, so they can change from one day to the next. Hover over a forecast to see the model behind it.
+> **How these forecasts are made.** Each point is a one-trading-day-ahead forecast of the closing price, made only with data available before that day. For every day and ticker, an ARIMA model is refit on the previous trading year (252 closes), and its orders p and q are chosen again, so they can change from one day to the next. Hover over a forecast to see the model behind it.
 >
 > **Why d = 1.** The model is fit to daily log returns as ARIMA(p, 0, q). Turning prices into returns is one round of differencing, so the same model on log prices is ARIMA(p, 1, q). The tooltip shows the log-price version.
 >
@@ -304,10 +304,11 @@ The frontend may adapt this wording, but it must keep its meaning: the model is 
 ### How the forecasts are produced
 
 - **Horizon:** one business day ahead. Each row's forecast was made using only data **before** `pred_date`.
-- **Walk-forward:** for each forecast date, an ARIMA model is refit on a sliding window of the preceding 20 business days of prices (log-transformed and differenced once), with orders `p` and `q` chosen from 0 to 1 and 0 to 1 (excluding 0,0) by RMSE and BIC rank on the window. The window slides one business day per row. Each window contains only NYSE trading sessions (since v15), so one model time step is one session; NYSE holidays are skipped, not treated as missing observations. Orders are scored by one-step-ahead forecasts on rolling 10-return sub-windows; since v17, a sub-window whose fit fails is left out of that candidate's score (an order whose fits all fail ranks last), and every sub-window holds 10 actual returns.
+- **Walk-forward:** for each forecast date, an ARIMA model is refit on a sliding window of the preceding trading year of prices: 252 closes ending on the last session before `pred_date`, so 251 daily log returns (since v24; 20 returns before). Orders `p` and `q` are chosen from 0 to 1 and 0 to 1 (excluding 0,0): since v24, each candidate is fit once on the whole window and the one with the **lowest BIC** wins, and its model makes the forecast. Exactly equal BICs (in practice only when fits fail) go to fewer parameters (`p + q`), then to the lower `p`, so the choice is reproducible. A candidate whose fit fails ranks last; if every candidate's fit fails, the run fails instead of uploading. The window slides one business day per row. Each window contains only NYSE trading sessions (since v15), so one model time step is one session; NYSE holidays are skipped, not treated as missing observations. Each model includes a constant, so its forecast includes the window's average daily log return (a drift term).
+- **Before v24** the window was the preceding 20 business days, and orders were scored by one-step-ahead RMSE and BIC rank on rolling 10-return sub-windows of it (with the v17 and v23 rules for failed fits and ties).
 - **Back to dollars:** the model forecasts a log return. The backend converts it to a price with `last_price × exp(forecasted log return)`, so `T_arima` is in the same units as `T`.
 - **Last row:** the final row is the first NYSE trading day after the latest available data. Its `T` values are **empty** because that day has not happened yet. Treat that row as the live forecast and the rows above it as the backtest.
-- **Rows** are unique by `pred_date` and sorted ascending. Since v21 the backend models the last 41 trading sessions, which normally gives 21 rows: 20 backtest rows with actuals plus the live row. The count can be lower when data is missing, so do not hard-code it.
+- **Rows** are unique by `pred_date` and sorted ascending. The backend models the last 272 trading sessions (since v24; 41 since v21), which normally gives 21 rows: 20 backtest rows with actuals plus the live row. The count can be lower when data is missing, so do not hard-code it.
 - **Missing data** (since v20). Forecasts are made only from closes that are present. If a whole session is absent from the data, there is no row for the session after it, because a one-step-ahead forecast for that day would need the missing close; the row for the missing session itself has an empty `T`. If only one ticker's close is missing on a session, the next row keeps its `pred_date`, but that ticker's `T_arima` and order columns are empty, while its `T_naive` still uses the most recent observed close. Rows are always unique by `pred_date`. Because the order columns can be empty, a CSV reader may load them as floats; treat their non-empty values as whole numbers.
 
 ### Not included
@@ -337,8 +338,8 @@ forecast_window:
   forecast_date: '2026-10-12'
   horizon_trading_days: 1
   training_window_end_date: '2026-10-09'
-  training_window_returns: 20
-  training_window_start_date: '2026-09-10'
+  training_window_returns: 251
+  training_window_start_date: '2025-10-08'
 models:
   arima:
     d: 1
@@ -346,8 +347,9 @@ models:
     excluded_orders:
     - - 0
       - 0
-    order_selection: lowest average rank of one-step-ahead RMSE and mean BIC on rolling sub-windows of the training window
-    order_selection_subwindow_returns: 10
+    order_selection: lowest BIC, each candidate order fit once on the whole training window
+    order_selection_subwindow_returns: 251
+    order_selection_tie_break: fewer parameters (p + q), then lower p
     p_values:
     - 0
     - 1
@@ -389,12 +391,12 @@ units:
 | `forecast_window.training_window_start_date` | string `YYYY-MM-DD` | First trading session of the live forecast's training window. |
 | `forecast_window.training_window_end_date` | string `YYYY-MM-DD` | Last session of that window, the latest close used. Equals the date folder. |
 | `forecast_window.forecast_date` | string `YYYY-MM-DD` | The date of the live forecast: the CSV's last `pred_date`, one NYSE trading day after `training_window_end_date`. |
-| `forecast_window.training_window_returns` | int | Daily log returns in each training window (`20`, so 21 closes). |
+| `forecast_window.training_window_returns` | int | Daily log returns in each training window (`251`, so 252 closes, since v24; `20` before). Use it to tell the two methods apart when comparing dates. |
 | `forecast_window.horizon_trading_days` | int | Forecast horizon (`1`: one trading day ahead). |
 | `evaluation_window.target_trading_days` | int | Number of most recent days with an actual close that are scored (`20`). |
 | `evaluation_window.start_date`, `.end_date` | string `YYYY-MM-DD` or null | Earliest start and latest end of the per-ticker evaluation windows. Normally the same for every ticker. |
 | `units.*` | string | Units of each metric: `usd_per_share` (RMSE, MAE), `percent` (MAPE), `ratio` (relative MAE, skill), `fraction` (directional accuracy, from 0 to 1). |
-| `models.arima.*`, `models.naive.description` | mixed | How each forecast is made: the ARIMA order search (`p_values`, `q_values`, `excluded_orders`), `d`, the order-selection rule and its sub-window length, and the naive rule. These are taken from the backend's settings. |
+| `models.arima.*`, `models.naive.description` | mixed | How each forecast is made: the ARIMA order search (`p_values`, `q_values`, `excluded_orders`), `d`, the order-selection rule and its sub-window length, the tie-break rule (`order_selection_tie_break`, since v23; absent in older files), and the naive rule. These are taken from the backend's settings. Since v24, candidates are scored on one window, the whole training window, so `order_selection_subwindow_returns` equals `forecast_window.training_window_returns` (it was the rolling sub-window length before). |
 | `ticker_metrics.<ticker>.n_evaluated` | int | Days actually scored. Normally 20; fewer if a ticker's forecast or close was missing on some of the 20 days. Both models are always scored on the same days. |
 | `ticker_metrics.<ticker>.evaluation_start_date`, `.evaluation_end_date` | string `YYYY-MM-DD` or null | First and last of this ticker's 20 most recent days with an actual close. |
 | `ticker_metrics.<ticker>.arima.rmse`, `.naive.rmse` | float or null | Root mean squared error of the forecast against the actual close, **US dollars per share**. |
@@ -460,6 +462,8 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 24 | 2026-10-17 | **Methodology change**; no key, column, file name, format, or unit is renamed, removed, or retyped. Each ARIMA forecast is now trained on the preceding trading year (252 closes, 251 daily log returns) instead of 20 returns, and orders are chosen by the **lowest BIC** of one fit per candidate on that whole window instead of by RMSE and BIC rank on rolling 10-return sub-windows; the winning model makes the forecast. Ties (exactly equal BICs) go to fewer parameters, then lower `p`. The backend now models the last 272 sessions; `all_forecasts.csv` still normally has 21 rows (20 backtest + live) and its columns are unchanged. In `all_forecasts_metadata.yml`, values change but keys do not: `forecast_window.training_window_returns` is 251, `training_window_start_date` is about a year before the date folder, `models.arima.order_selection` and `order_selection_tie_break` describe the new rule, and `order_selection_subwindow_returns` equals the training window (251). The optimization files are unchanged: they use exactly the last 252 sessions (previously all downloaded rows, which could be one more session, so `date_updated.date_from` can move one session later). Date folders uploaded before v24 keep their 20-return forecasts unless re-run with `--retrain-arima`, so comparisons across dates mix the two methods; `training_window_returns` tells them apart. Frontend must: update the forecast-plot text to say the model is refit on the previous trading year (see "Suggested user-facing wording"); show any order-selection text from the metadata rather than hard-coding the old rule. |
+| 23 | 2026-10-16 | Methodology fix plus one **additive** key; no key, column, format, or unit is renamed, removed, or changed. ARIMA orders are chosen by the lowest average of the RMSE rank and the BIC rank, and with three candidates equal averages are common. Ties used to go to whichever candidate came first in an internal table whose order depended on which parallel job finished first, so the chosen order (and `T_arima`) could differ between runs on the same data. Ties now go to the lower one-step-ahead RMSE, then fewer parameters (`p + q`), then the lower `p`, so runs are reproducible. `all_forecasts_metadata.yml` gains `models.arima.order_selection_tie_break` describing this rule. `T_arima` and the order columns change only on rows where a tie was broken. Date folders uploaded before v23 keep their forecasts unless re-run with `--retrain-arima`, and their orders on tied rows reflect the old, run-dependent tie-break. Frontend: no change required; displaying the new key is optional, and it is absent in older files. |
 | 22 | 2026-10-15 | Documentation only; no change to files, keys, or values. The investment-advice disclaimer is consolidated: the frontend shows one fixed wording ("Not investment advice. Every value shown is a backtest or model output computed from historical prices, and none of it predicts future results or recommends any investment.") once, at the bottom of the UI, and it is no longer repeated in the suggested plot, tooltip, and metrics wording. Frontend: keep the single footer disclaimer with this wording and drop any repeats. |
 | 21 | 2026-10-15 | **Additive.** New file `all_forecasts_metadata.yml` next to `all_forecasts.csv` in every date folder: the live forecast's training window and forecast date, and, per ticker, RMSE, MAE and MAPE for ARIMA and naive forecasts over the last 20 trading days with an actual close, `relative_mae` (ARIMA MAE ÷ naive MAE), `skill` (1 − relative MAE), and ARIMA directional accuracy, plus units and a description of both models. All keys are lowercase snake_case, **including ticker keys** (`xbi`, not `XBI`). Upload order is now forecasts CSV, forecasts metadata, `.h5`, optimization metadata (still last); the availability rule is unchanged. To score 20 days, the ARIMA input grows from 40 to 41 trading sessions, so `all_forecasts.csv` normally has 21 rows (20 backtest + live) instead of 20; columns are unchanged. Frontend must: read the metrics from this file (match tickers case-insensitively) instead of computing RMSE itself; treat the file as optional for older dates; use the suggested wording; label `relative_mae` as "relative MAE" or show `skill`, not "MASE". |
 | 20 | 2026-10-15 | Bug fix, non-breaking for complete data (no change to keys, column names, or units; with no missing closes the output is unchanged). Two gaps in the price data were mishandled. (1) If a whole session was missing, two rows got the same `pred_date` (the day of the gap) and the session after it had no row, violating "rows are unique by `pred_date`"; training windows are now built on the dates actually present, so `pred_date` is always unique, and the session after a whole missing session has no row. (2) If one ticker's close was missing, its next `T_arima` came out empty by accident (the back-transform multiplied by the missing price); it is now deliberately empty, as are that row's order columns (`T_arima_p`, `T_arima_d`, `T_arima_q`), and `T_naive` still uses the most recent observed close. `T_arima` and the order columns are now documented as possibly empty. Added "Missing data" under "How the forecasts are produced". Frontend: handle empty `T_arima` and empty (or float-typed) order columns on such rows. |

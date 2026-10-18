@@ -36,6 +36,7 @@ Options:
 | `--no-upload` | Write the `output/` files but upload nothing. Use this to check a run without touching any bucket. |
 | `--retrain-arima` | Retrain the ARIMA models even if forecasts for the as-of date are cached. |
 | `--refresh-data` | Download prices again even if today's download is cached. |
+| `--workers N` | Number of worker processes for ARIMA training. Defaults to half the logical CPUs (for example 8 on a 16-thread Intel CPU, 5 on a 10-core M4). `--workers 1` trains everything in one process. The forecasts do not depend on this setting. |
 
 Nothing is uploaded unless every step succeeds. If a later step fails, the ARIMA forecasts already written to `output/` are reused on the next run.
 
@@ -101,7 +102,7 @@ The following folders should be created before running the scripts in the sectio
 
 1. `input/`: Holds risk free rate data.
 
-2. `input/annual/`: Holds the cached price downloads (one year of trading days, one file per run date). Both the optimization and the ARIMA forecasts use this data; ARIMA uses its last 41 trading days (20-day training windows plus 20 scored backtest days).
+2. `input/annual/`: Holds the cached price downloads (about 277 trading days, one file per run date). Both the optimization and the ARIMA forecasts use this data: the optimization uses its last 252 trading days, and ARIMA its last 272 (one-year training windows of 252 closes plus 20 scored backtest days). A cached file that is too short, for example one written before the ARIMA window grew, is downloaded again automatically.
 
 3. `output/`: Holds the results of runs, in one folder per data as-of date (the last NYSE trading day in the run's data). Subfolders are created automatically. The layout mirrors the frontend buckets, where each file's key is its path below `output/<kind>/`:
 
