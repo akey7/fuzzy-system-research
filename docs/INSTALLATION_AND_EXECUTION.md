@@ -60,7 +60,15 @@ time_series_models:
 
 Changing a value changes what is uploaded. Run with `--retrain-arima` afterwards, because the cached forecasts for a date are otherwise reused. `INTERFACE_CONTRACT.md` does not state the values, so changing them needs no contract update as long as their meaning stays the same.
 
-Run development tools the same way, for example `uv run pytest` or `uv run black .`.
+### Running the tests
+
+The tests in `tests/` run in memory: they use mocks and temporary directories, and never touch the network, the bucket, `input/`, or `output/`. Run them from the repository root:
+
+```
+uv run pytest
+```
+
+Run other development tools the same way, for example `uv run black .`.
 
 ### Managing dependencies
 
@@ -92,8 +100,4 @@ Items 2 through 4 connect the backend to the front end.
 
 ## Execution
 
-Once setup is complete, the whole pipeline can be executed with the following command issued at the repo's root:
-
-```
-uv run python scripts/run_optimization_and_time_series.py
-```
+Once setup is complete, run the whole pipeline from the repository root as described in [Running the backend](#running-the-backend).
