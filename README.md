@@ -16,10 +16,16 @@ This project is intended both as a quantitative-methods demonstration and as an 
 ## Documentation
 
 **Quantitative methods and interpretation:**  
-[METHODS_AND_RESULTS.md](METHODS_AND_RESULTS.md)
+[docs/METHODS_AND_RESULTS.md](docs/METHODS_AND_RESULTS.md)
+
+**System Design:**
+[docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md)
+
+**Interface Contract Between Backend and Frontend:**
+[docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md)
 
 **Installation, execution, architecture, testing, and deployment:**  
-[INSTALLATION_AND_EXECUTION.md](INSTALLATION_AND_EXECUTION.md)
+[docs/INSTALLATION_AND_EXECUTION.md](docs/INSTALLATION_AND_EXECUTION.md)
 
 ## Related Links
 

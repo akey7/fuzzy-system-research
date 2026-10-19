@@ -1,8 +1,14 @@
+# System Design
+
+This document describes the system design of the backend.
+
+Also of interest to an engineering audience is the [INTERFACE_CONTRACT.md](INTERFACE_CONTRACT.md) file, which describes the contract of data transmission from the backend to the frontend.
+
 ## How the backend works
 
 One run of `scripts/run_optimization_and_time_series.py` downloads prices, then follows two paths, the time series forecasts and the portfolio optimization, and finally uploads their results. The first diagram shows which module owns each part of a run; the second shows which files each step reads and writes, and the functions that write them.
 
-### From data sources to upload
+## From data sources to upload
 
 ```text
  legend: [external]   module.py   ─► data flow
@@ -42,7 +48,7 @@ One run of `scripts/run_optimization_and_time_series.py` downloads prices, then 
 - The ARIMA window and the number of scored days come from the configuration file (see "Model settings"); the optimization window is set in `pipeline.py`.
 - Nothing is uploaded unless every step succeeds.
 
-### Files read and written
+## Files read and written
 
 ```text
  legend: ◄── written by    [n] upload order    <as-of> = last trading day in the data
@@ -145,3 +151,7 @@ These modules are imported by the scripts and are not meant to be executed direc
 | `pipeline.py`                               | Orchestrates one backend run and its uploads (`csv`, then `.h5`, then `.yml` last).                                                                    | Yes                                  |
 | `storage/layout.py`                         | Builds the dated `output/` paths and matching bucket keys (`YYYY-MM-DD/<file>`).                                                                        | No                                   |
 | `storage/s3_uploader.py`                    | Uploads files to the one DigitalOcean Space (`FSF_FRONT_END_BUCKET_NAME`) by full object key; rejects non-region-only endpoints.                       | Yes (other modules use it to upload) |
+
+## More Engineering Reading
+
+[INTERFACE_CONTRACT.md](INTERFACE_CONTRACT.md) describes the contract between the backend and frontend.
