@@ -1,7 +1,7 @@
 """
 End-to-end portfolio optimization for one run: from wide adjusted close
 prices to annualized results, plus writers for the two files the frontend
-reads (see INTERFACE_CONTRACT.md).
+reads (see docs/INTERFACE_CONTRACT.md).
 
 Conventions (unchanged from the original script):
 - Returns are simple daily returns in percent; the optimizer works in daily
@@ -159,7 +159,7 @@ def run_portfolio_optimization(
 def write_plot_data_h5(result: OptimizationResult, path: str) -> None:
     """
     Write portfolio_optimization_plot_data.h5 as specified in
-    INTERFACE_CONTRACT.md: five groups of xs (risk) / ys (return) datasets
+    docs/INTERFACE_CONTRACT.md: five groups of xs (risk) / ys (return) datasets
     plus root attributes describing the units. Overwrites the file.
 
     Parameters
@@ -196,7 +196,7 @@ def build_optimization_metadata(
 ) -> dict:
     """
     Build the contents of optimization_metadata.yml as specified in
-    INTERFACE_CONTRACT.md. Pure function.
+    docs/INTERFACE_CONTRACT.md. Pure function.
 
     Parameters
     ----------
