@@ -44,7 +44,7 @@ Always run scripts from the repository root, because the scripts read and write 
 
 ### Model settings
 
-Time series settings live in `config/modeling_and_optimization.yml`, which is checked into the repository. **For the current values, and what each setting means, consult that file's comments;** the validation rules (types and minimums) are documented in `src/fuzzy_system_research/config.py`. This README deliberately does not repeat the values, so it cannot go out of date when they change.
+Time series settings live in `config/modeling_and_optimization.yml`, which is checked into the repository. **For the current values, and what each setting means, consult that file's comments;** the validation rules (types and minimums) are documented in `src/fuzzy_system_research/config.py`. This document deliberately does not repeat the values, so it cannot go out of date when they change.
 
 ```yaml
 time_series_models:

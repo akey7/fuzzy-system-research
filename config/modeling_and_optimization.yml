@@ -8,7 +8,7 @@
 # Changing a value changes what is uploaded: re-run with --retrain-arima,
 # because cached forecasts for a date are otherwise reused. Each run records
 # the values it used in all_forecasts_metadata.yml, where the frontend reads
-# them, so INTERFACE_CONTRACT.md needs no update unless a setting's meaning
+# them, so docs/INTERFACE_CONTRACT.md needs no update unless a setting's meaning
 # changes.
 time_series_models:
   # Closing prices (NYSE trading sessions) in each ARIMA training window, ending

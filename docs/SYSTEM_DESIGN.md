@@ -45,7 +45,7 @@ One run of `scripts/run_optimization_and_time_series.py` downloads prices, then 
 ```
 
 - The two paths run one after the other in a single process. Within the time series path, the ARIMA fits for every ticker and day run at the same time in a pool of worker processes (`--workers`).
-- The ARIMA window and the number of scored days come from the configuration file (see "Model settings"); the optimization window is set in `pipeline.py`.
+- The ARIMA window and the number of scored days come from the configuration file (see "Model settings" in [INSTALLATION_AND_EXECUTION.md](INSTALLATION_AND_EXECUTION.md#model-settings)); the optimization window is set in `pipeline.py`.
 - Nothing is uploaded unless every step succeeds.
 
 ## Files read and written
@@ -109,7 +109,7 @@ The following folders should be created before running the scripts in the sectio
 
 1. `input/`: Holds risk free rate data.
 
-2. `input/annual/`: Holds the cached price downloads (one file per run date), long enough for both the optimization and the ARIMA forecasts. The optimization uses the last 252 trading days, and ARIMA the last training window plus scored backtest days (see "Model settings" for where those lengths are set). A cached file that is too short, for example one written before the ARIMA window grew, is downloaded again automatically.
+2. `input/annual/`: Holds the cached price downloads (one file per run date), long enough for both the optimization and the ARIMA forecasts. The optimization uses the last 252 trading days, and ARIMA the last training window plus scored backtest days (see "Model settings" in [INSTALLATION_AND_EXECUTION.md](INSTALLATION_AND_EXECUTION.md#model-settings) for where those lengths are set). A cached file that is too short, for example one written before the ARIMA window grew, is downloaded again automatically.
 
 3. `output/`: Holds the results of runs, in one folder per data as-of date (the last NYSE trading day in the run's data). Subfolders are created automatically. The layout mirrors the frontend buckets, where each file's key is its path below `output/<kind>/`:
 

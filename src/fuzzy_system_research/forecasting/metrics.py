@@ -1,6 +1,6 @@
 """
 Forecast accuracy metrics for all_forecasts_metadata.yml (see
-INTERFACE_CONTRACT.md): how well the ARIMA and naive forecasts in
+docs/INTERFACE_CONTRACT.md): how well the ARIMA and naive forecasts in
 all_forecasts.csv did over the most recent days with an actual close.
 
 Everything here is pure except write_forecast_metadata(). Metrics are
@@ -114,7 +114,7 @@ def ticker_metrics(forecasts_df: pd.DataFrame, ticker: str, eval_days: int) -> d
     Returns
     -------
     dict
-        Nested metrics for the YAML file (see INTERFACE_CONTRACT.md).
+        Nested metrics for the YAML file (see docs/INTERFACE_CONTRACT.md).
     """
     actual_all = forecasts_df[ticker]
     with_actual = forecasts_df.loc[actual_all.notna()].tail(eval_days)

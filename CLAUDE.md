@@ -24,7 +24,7 @@ A hobby project (also a portfolio piece) that demonstrates time series modeling 
 
 1. Downloads adjusted open/high/low/close data for a portfolio of stocks from Massive.com (API key variable `MASSIVE_API_KEY`), covering enough recent trading days for the optimization and the configured ARIMA windows, through the most recent trading day. Separately, it downloads the daily 3-month U.S. Treasury bill rate from FRED (series `DTB3`, via `pandas-datareader`; no API key).
 2. Optimizes portfolio weights for (a) maximum Sharpe ratio, using the current T-bill rate as the risk-free rate, and (b) minimum variance. Also computes the efficient frontier and a Monte Carlo simulation of portfolio risk/return.
-3. Slides a window of prior trading days to train ARIMA models predicting each day's close price over a backtest period, and computes accuracy metrics (RMSE and others, against a naive baseline) for those models. The window and backtest lengths are settings: consult `config/modeling_and_optimization.yml` (its comments) and the README's "Model settings" section for their current values and meaning. Don't restate the values in docs.
+3. Slides a window of prior trading days to train ARIMA models predicting each day's close price over a backtest period, and computes accuracy metrics (RMSE and others, against a naive baseline) for those models. The window and backtest lengths are settings: consult `config/modeling_and_optimization.yml` (its comments) and the "Model settings" section of `docs/INSTALLATION_AND_EXECUTION.md` for their current values and meaning. Don't restate the values in docs.
 4. Uploads all ARIMA and optimization results to a DigitalOcean Spaces (S3-compatible) bucket, which the frontend reads.
 
 The bucket is the **interface contract** with the frontend. Treat the schema, file names, and formats of uploaded artifacts as a public API (see "Changing the frontend contract").
@@ -72,7 +72,31 @@ Because the human can't have Claude run anything, **any future reorganization is
 2. Update every import, relative path, and path constant affected. Pay special attention to anything that builds paths to `input/` and `output/` and to how scripts locate the `.env` file.
 3. Because nothing can be executed, check consistency statically: grep for every old module name, confirm each import resolves to a real file, and list entry points whose invocation commands changed so the human can re-run them.
 4. Ask before using shell commands to move files; never use `git mv`. The human will handle staging and commits.
-5. Update this file's layout section and the README when the structure is settled.
+5. Update this file's layout section and the "Project structure" section of `docs/SYSTEM_DESIGN.md` when the structure is settled.
+
+## Documentation layout
+
+Human-facing documentation lives in `README.md` and `docs/`. The priority audience is **data science / quantitative finance first, engineering second**.
+
+| File | Purpose | Audience |
+| --- | --- | --- |
+| `README.md` | Abstract of the project, and a "Documentation" section pointing to the other documents | Data science / quant and engineering |
+| `docs/METHODS_AND_RESULTS.md` | A short paper on the quantitative methods and results. **Placeholder for now:** leave its placeholder content alone until the human says the project is mature enough to write it. | Data science / quant finance |
+| `docs/SYSTEM_DESIGN.md` | Data flow from inputs to outputs: the "How the backend works" diagrams, project structure, data folders, scripts, library modules | Engineering |
+| `docs/INTERFACE_CONTRACT.md` | The backend ↔ frontend contract (see "Changing the frontend contract") | Engineering and Claude Code |
+| `docs/INSTALLATION_AND_EXECUTION.md` | Installing, configuring, and running the backend: dependencies, `.env`, command-line flags, "Model settings" | Engineering |
+
+Intended read orders, which links between documents should support:
+
+- Data science / quant: `README → METHODS_AND_RESULTS → dashboard → source code if curious`
+- Engineering: `README → SYSTEM_DESIGN → INTERFACE_CONTRACT → tests/source → INSTALLATION_AND_EXECUTION if curious`
+
+Rules for `README.md`:
+
+- Everything above the "Documentation" heading must stay at or under **300 words**.
+- Do not edit `README.md` on your own initiative. When a major change to the quantitative methods would be worth reflecting in it, **propose the wording to the human and edit only after approval.** Detail belongs in `docs/`, not in the README.
+
+Put new engineering detail in the matching file under `docs/`, not in the README. Paths between files in `docs/` are relative to `docs/` (e.g. `[INTERFACE_CONTRACT.md](INTERFACE_CONTRACT.md)`); paths from the repo root include `docs/`.
 
 ## Environment and configuration
 
@@ -85,7 +109,7 @@ Because the human can't have Claude run anything, **any future reorganization is
 - `MASSIVE_API_KEY` — Massive.com market data API key
 - `FSF_FRONT_END_BUCKET_NAME` — name of the one DigitalOcean Space (S3 bucket); `S3Uploader` passes it as `Bucket` and puts the folder in the key
 - `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT` (region-only, e.g. `https://nyc3.digitaloceanspaces.com`) — DigitalOcean Spaces region, read/write/delete key, key id, endpoint
-- `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, `FSF_FRONT_END_TIME_SERIES_FOLDER` — names of the two **top-level folders (key prefixes) inside the one Space** (see `INTERFACE_CONTRACT.md`, "Where the data lives"). Dev and production share the Space and differ only in these folder names. Formerly `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`; the old names are no longer read.
+- `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, `FSF_FRONT_END_TIME_SERIES_FOLDER` — names of the two **top-level folders (key prefixes) inside the one Space** (see `docs/INTERFACE_CONTRACT.md`, "Where the data lives"). Dev and production share the Space and differ only in these folder names. Formerly `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`; the old names are no longer read.
 
 The bucket variables point the backend at either dev or production. **Be careful with anything that could upload.** A change to upload logic can overwrite what the live frontend displays. Flag any change that alters what gets uploaded, where, or under what key.
 
@@ -105,7 +129,7 @@ The bucket variables point the backend at either dev or production. **Be careful
 - Use type hints on new and modified functions. Keep functions pure where possible (separate computation from I/O) so they can be reasoned about and tested without running the pipeline.
 - Keep network calls (Massive.com), caching (`ticker_download_manager`), and uploads (`s3_uploader`) in their existing support-module roles. Don't scatter new API or S3 calls into modeling code.
 - Don't add dependencies without saying why and naming the alternative of not adding one.
-- Fix obvious typos you come across in docstrings or the README only when you're already editing that text, and don't make unrelated drive-by changes.
+- Fix obvious typos you come across in docstrings or files under `docs/` only when you're already editing that text, and don't make unrelated drive-by changes. For `README.md`, point typos out to the human instead (see "Documentation layout").
 
 ### Quant finance and statistics standards
 
@@ -119,9 +143,9 @@ This is the area where wrong answers look plausible, so be explicit and conserva
 
 ### Changing the frontend contract
 
-@INTERFACE_CONTRACT.md
+@docs/INTERFACE_CONTRACT.md
 
-The file above is the authoritative spec of what this backend uploads and the frontend reads. This repo holds the **source of truth**; the frontend repo has an identical mirror. Never change the contract, or any code that alters what it describes, without also updating `INTERFACE_CONTRACT.md` (bump its version, add a changelog entry) and telling the human to copy it unchanged into the frontend repo. Never edit it in only one repo.
+The file above (`docs/INTERFACE_CONTRACT.md`) is the authoritative spec of what this backend uploads and the frontend reads. It is also human-facing documentation, so keep it readable for an engineer as well as precise for Claude Code. This repo holds the **source of truth**; the frontend repo has an identical mirror. Never change the contract, or any code that alters what it describes, without also updating `docs/INTERFACE_CONTRACT.md` (bump its version, add a changelog entry) and telling the human to copy it unchanged into the frontend repo. Never edit it in only one repo.
 
 The frontend reads what this backend uploads. Before changing any of the following, pause and describe the change and its frontend impact to the human:
 
@@ -143,4 +167,6 @@ Prefer additive changes (new fields/files) over breaking ones, and note a migrat
 
 After the reorganization, update the "Repo layout" section. If the project gains tests, linting configuration, or new scripts, add the commands the human uses to run them (for the human to run, not Claude).
 
-The README's "How the backend works" section has two diagrams that name source files, classes, functions, and the files each step reads, writes, and uploads. In the same change, update them whenever a pipeline step, source file, class, function, local file, or uploaded file shown there is added, renamed, moved, or removed, and keep them free of setting values such as window lengths.
+If documentation files move again, update "Documentation layout" above, the `@docs/INTERFACE_CONTRACT.md` import under "Changing the frontend contract", and every path in this file that points into `docs/`.
+
+The "How the backend works" section of `docs/SYSTEM_DESIGN.md` has two diagrams that name source files, classes, functions, and the files each step reads, writes, and uploads. In the same change, update them whenever a pipeline step, source file, class, function, local file, or uploaded file shown there is added, renamed, moved, or removed, and keep them free of setting values such as window lengths.
