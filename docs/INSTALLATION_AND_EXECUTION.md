@@ -1,0 +1,99 @@
+# Installation
+
+## Package Management
+
+This project uses [uv](https://docs.astral.sh/uv/) for Python versions, virtual environments, and dependencies. Install `uv` first (for example, `brew install uv` on macOS). Dependencies are declared in `pyproject.toml`, and `uv.lock` pins the exact versions that were resolved. The project requires Python 3.13 and pins 3.13.5 in `.python-version`, which `uv` downloads automatically if it is not already installed.
+
+### Development Dependencies
+
+Create the `.venv` virtual environment and install production plus development dependencies (the `dev` group is included by default). This also installs the `fuzzy_system_research` package from `src/` in editable mode, so edits to the library code take effect immediately:
+
+```
+uv sync
+```
+
+### Production Dependencies
+
+To install only the production dependencies:
+
+```
+uv sync --no-dev
+```
+
+### Running the backend
+
+One command runs everything: it downloads prices (or reuses today's cached download), fits the walk-forward ARIMA forecasts (or reuses the cached forecasts for the data's as-of date), optimizes the portfolio, and uploads all results for the frontend. Run it through `uv` so it uses the project environment; there is no need to activate the virtual environment manually:
+
+```
+uv run python scripts/run_optimization_and_time_series.py
+```
+
+Options:
+
+| Flag | Effect |
+| --- | --- |
+| `--no-upload` | Write the `output/` files but upload nothing. Use this to check a run without touching any bucket. |
+| `--retrain-arima` | Retrain the ARIMA models even if forecasts for the as-of date are cached. |
+| `--refresh-data` | Download prices again even if today's download is cached. |
+| `--workers N` | Number of worker processes for ARIMA training. Defaults to half the logical CPUs (for example 8 on a 16-thread Intel CPU, 5 on a 10-core M4). `--workers 1` trains everything in one process. The forecasts do not depend on this setting. |
+| `--config PATH` | Model settings file to use instead of `config/modeling_and_optimization.yml` (see below). |
+
+Nothing is uploaded unless every step succeeds. If a later step fails, the ARIMA forecasts already written to `output/` are reused on the next run.
+
+Always run scripts from the repository root, because the scripts read and write `input/` and `output/` (and read `config/`) relative to the current working directory.
+
+### Model settings
+
+Time series settings live in `config/modeling_and_optimization.yml`, which is checked into the repository. **For the current values, and what each setting means, consult that file's comments;** the validation rules (types and minimums) are documented in `src/fuzzy_system_research/config.py`. This README deliberately does not repeat the values, so it cannot go out of date when they change.
+
+```yaml
+time_series_models:
+  training_window_length: ...    # closes (trading sessions) per ARIMA training window
+  evaluation_window_length: ...  # most recent trading days backtested and scored
+```
+
+- `training_window_length` counts **closing prices**; each window has one fewer daily log return than closes.
+- `evaluation_window_length` is the number of backtest days in `all_forecasts.csv` (plus the live forecast) and in the metrics of `all_forecasts_metadata.yml`.
+- Both keys are required, and unknown keys are rejected, so a typo stops the run before any download instead of silently using a default.
+- The run downloads enough history for the ARIMA windows plus scored days and for the optimization's 252 sessions, whichever is longer, with a small margin.
+- Each run records the values it used in `all_forecasts_metadata.yml` (`forecast_window.training_window_returns`, `evaluation_window.target_trading_days`), which is where the frontend reads them.
+
+Changing a value changes what is uploaded. Run with `--retrain-arima` afterwards, because the cached forecasts for a date are otherwise reused. `INTERFACE_CONTRACT.md` does not state the values, so changing them needs no contract update as long as their meaning stays the same.
+
+Run development tools the same way, for example `uv run pytest` or `uv run black .`.
+
+### Managing dependencies
+
+```
+uv add <package>           # add a production dependency
+uv add --dev <package>     # add a development dependency
+uv remove <package>        # remove a dependency
+uv lock --upgrade          # upgrade all packages within the declared constraints
+uv sync                    # bring .venv in line with uv.lock
+```
+
+Commit both `pyproject.toml` and `uv.lock` whenever dependencies change.
+
+### `.env` file
+
+**Never commit the `.env` file to GitHub!** It should never be made publicly accessible because it contains API keys.
+
+Here are the keys the scripts need to function:
+
+1. `MASSIVE_API_KEY`: Key to Massive.com API for stock and index data. Obtain from API provider.
+
+2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_RWDELETE`, `FSF_FRONT_END_BUCKET_KEY_ID`, `FSF_FRONT_END_BUCKET_ENDPOINT`: Region, read/write/delete key, key id, and endpoint of the DigitalOcean S3/Spaces bucket. Set as appropriate for development or production environments. Obtain values from DigitalOcean or AWS environments.
+
+3. `FSF_FRONT_END_BUCKET_NAME`: Name of the one DigitalOcean Space (S3 bucket) that holds all frontend data. `FSF_FRONT_END_BUCKET_ENDPOINT` must be the region-only endpoint (e.g. `https://nyc3.digitaloceanspaces.com`) without the Space name; the uploader refuses to run otherwise.
+
+4. `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER` and `FSF_FRONT_END_TIME_SERIES_FOLDER`: names of the two top-level folders inside that Space, holding the portfolio optimization and ARIMA time series data. Dev and production share the Space and use different folder names. Files are uploaded to `<folder>/YYYY-MM-DD/<file>`; see `INTERFACE_CONTRACT.md` for the full key layout.
+
+Items 2 through 4 connect the backend to the front end.
+
+## Execution
+
+Once setup is complete, the whole pipeline can be executed with the following command issued at the repo's root:
+
+```
+uv run python scripts/run_optimization_and_time_series.py
+```
