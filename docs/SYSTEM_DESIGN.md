@@ -87,11 +87,15 @@ The repository separates code that you **run** from code that you **import**:
 fuzzy-system-research/
 ├── pyproject.toml                # Dependencies, Python version, build config
 ├── uv.lock                       # Exact resolved dependency versions
+├── config/
+│   └── modeling_and_optimization.yml  # Model settings (checked in)
+├── docs/                         # Documentation, including the interface contract
 ├── scripts/                      # RUN these: entry points that wire the library together
 │   ├── run_optimization_and_time_series.py
 │   └── ticker_download_to_csv.py
 ├── src/fuzzy_system_research/    # IMPORT these: reusable library code, no entry points
-│   ├── pipeline.py               # One full run: prices → ARIMA → optimization → uploads
+│   ├── config.py                 # Loads and validates the model settings file
+│   ├── pipeline.py               # One full run: prices → ARIMA → metrics → optimization → uploads
 │   ├── data/                     # Market data download, caching, price reshaping, and date logic
 │   ├── optimization/             # Portfolio optimization math
 │   ├── forecasting/              # ARIMA models and the walk-forward training workflow
@@ -130,7 +134,7 @@ Run these directly with `uv run python scripts/<filename>` from the repository r
 
 | Filename                                | Purpose                                                                                                                                                                                                                   | Uploads to front end? |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `scripts/run_optimization_and_time_series.py` | The whole backend in one run: obtain adjusted close prices, fit walk-forward ARIMA forecasts, compute max Sharpe ratio and min variance portfolios, the efficient frontier, and a Monte Carlo simulation, then upload. See "Running the backend" for flags. | Yes |
+| `scripts/run_optimization_and_time_series.py` | The whole backend in one run: obtain adjusted close prices, fit walk-forward ARIMA forecasts, compute max Sharpe ratio and min variance portfolios, the efficient frontier, and a Monte Carlo simulation, then upload. See "Running the backend" in [INSTALLATION_AND_EXECUTION.md](INSTALLATION_AND_EXECUTION.md#running-the-backend) for flags. | Yes |
 | `scripts/ticker_download_to_csv.py`     | Download a supported symbol from Massive.com and put the results into a `.csv` file. Usage: `uv run python scripts/ticker_download_to_csv.py <ticker> <date_from> <date_to> <filename>`.                                    | No                    |
 
 ### Library modules
@@ -148,8 +152,8 @@ These modules are imported by the scripts and are not meant to be executed direc
 | `forecasting/arima_models.py`               | Trains ARIMA models on price data.                                                                                                                      | No                                   |
 | `forecasting/ticker_predict.py`             | `ArimaWalkForward`: walk-forward ARIMA training over rolling windows; `load_or_train_forecasts` caches the result.                                      | No                                   |
 | `forecasting/metrics.py`                    | Accuracy of the ARIMA and naive forecasts over the configured number of most recent trading days (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) for `all_forecasts_metadata.yml`. | No |
-| `pipeline.py`                               | Orchestrates one backend run and its uploads (`csv`, then `.h5`, then `.yml` last).                                                                    | Yes                                  |
-| `storage/layout.py`                         | Builds the dated `output/` paths and matching bucket keys (`YYYY-MM-DD/<file>`).                                                                        | No                                   |
+| `pipeline.py`                               | Orchestrates one backend run and its uploads (`all_forecasts.csv`, `all_forecasts_metadata.yml`, `.h5`, then `optimization_metadata.yml` last).      | Yes                                  |
+| `storage/layout.py`                         | Builds the dated `output/` paths and matching bucket keys (`<folder>/YYYY-MM-DD/<file>`).                                                               | No                                   |
 | `storage/s3_uploader.py`                    | Uploads files to the one DigitalOcean Space (`FSF_FRONT_END_BUCKET_NAME`) by full object key; rejects non-region-only endpoints.                       | Yes (other modules use it to upload) |
 
 ## More Engineering Reading

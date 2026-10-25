@@ -21,7 +21,7 @@ This project is intended both as a quantitative-methods demonstration and as an 
 
 **Interface Contract Between Backend and Frontend:** [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md)
 
-**Installation, execution, architecture, testing, and deployment:** [docs/INSTALLATION_AND_EXECUTION.md](docs/INSTALLATION_AND_EXECUTION.md)
+**Installation, execution, and testing:** [docs/INSTALLATION_AND_EXECUTION.md](docs/INSTALLATION_AND_EXECUTION.md)
 
 ## Related Links
 
