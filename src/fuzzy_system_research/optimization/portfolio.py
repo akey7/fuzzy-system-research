@@ -263,8 +263,6 @@ def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
         bounds=weight_bounds,
         constraints={"type": "eq", "fun": portfolio_weights_constraint},
     )
-    print("Minimum variance portfolio optimization result:")
-    print(min_var_result)
     _require_success(min_var_result, "minimum variance")
     min_var_risk = np.sqrt(min_var_result.fun)
     min_var_weights = min_var_result.x

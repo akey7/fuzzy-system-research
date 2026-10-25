@@ -143,14 +143,9 @@ def run_portfolio_optimization(
     optimized_risks, target_returns = calc_efficient_frontier(
         assets, min_var_return, max(simulated_returns), mean_returns, cov_np
     )
-    print("Efficient frontier target returns")
-    print(target_returns)
-    print("Efficient frontier optimized risks")
-    print(optimized_risks)
     best_sharpe_ratio, best_weights, opt_risk, opt_return = optimize_sharpe_ratio(
         assets, daily_risk_free_rate, mean_returns, cov_np
     )
-    print(f"best_sharpe_ratio={best_sharpe_ratio}, best_weights={best_weights}")
     best_weights_pct_dict = pd.Series(
         best_weights * 100, index=mean_returns.index
     ).to_dict()
