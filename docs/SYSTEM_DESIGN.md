@@ -109,7 +109,7 @@ Scripts contain argument handling and orchestration: they decide *what* to run. 
 
 ### Data folders
 
-The following folders should be created before running the scripts in the section below. Their content is not committed to GitHub.
+The backend uses the following folders. You don't need to create them: the scripts create each one (and any missing parent folders) the first time they write to it. Their content is not committed to GitHub.
 
 1. `input/`: Holds risk free rate data.
 
