@@ -15,8 +15,9 @@ Conventions (unchanged from the original script):
   data, so the results are noisy.
 - The minimum variance and max Sharpe ratio optimizations must converge;
   otherwise portfolio.OptimizationError stops the run before the
-  optimization files are written and before anything is uploaded. An efficient-frontier target return that cannot be
-  reached is recorded as NaN instead (see docs/INTERFACE_CONTRACT.md).
+  optimization files are written and before anything is uploaded. An
+  efficient-frontier target return that cannot be reached is recorded as
+  NaN instead (see docs/INTERFACE_CONTRACT.md).
 """
 
 from dataclasses import dataclass
