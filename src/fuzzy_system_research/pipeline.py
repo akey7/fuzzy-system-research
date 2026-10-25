@@ -18,7 +18,7 @@ Order of operations:
 4. Upload, only after every step above succeeded, to the one frontend Space
    under <folder>/<as-of date>/: all_forecasts.csv, all_forecasts_metadata.yml,
    portfolio_optimization_plot_data.h5, then optimization_metadata.yml last,
-   so the metadata file marks a complete date (see INTERFACE_CONTRACT.md).
+   so the metadata file marks a complete date (see docs/INTERFACE_CONTRACT.md).
 
 Network, S3, and model training are passed in as dependencies so the
 orchestration can be tested without them.
@@ -84,8 +84,7 @@ def required_sessions(ts_config: TimeSeriesConfig) -> int:
 def price_download_sessions(ts_config: TimeSeriesConfig) -> int:
     """
     Trading sessions requested from the API: required_sessions() plus
-    PRICE_DOWNLOAD_MARGIN_SESSIONS. Pure
-    function.
+    PRICE_DOWNLOAD_MARGIN_SESSIONS. Pure function.
     """
     return required_sessions(ts_config) + PRICE_DOWNLOAD_MARGIN_SESSIONS
 

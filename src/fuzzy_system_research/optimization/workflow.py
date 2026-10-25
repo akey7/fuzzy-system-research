@@ -1,7 +1,7 @@
 """
 End-to-end portfolio optimization for one run: from wide adjusted close
 prices to annualized results, plus writers for the two files the frontend
-reads (see INTERFACE_CONTRACT.md).
+reads (see docs/INTERFACE_CONTRACT.md).
 
 Conventions (unchanged from the original script):
 - Returns are simple daily returns in percent; the optimizer works in daily
@@ -13,6 +13,10 @@ Conventions (unchanged from the original script):
   weights unchanged and keeps the tangency line straight.
 - Mean returns and covariance are estimated from about one year of daily
   data, so the results are noisy.
+- The minimum variance and max Sharpe ratio optimizations must converge;
+  otherwise portfolio.OptimizationError stops the run before the
+  optimization files are written and before anything is uploaded. An efficient-frontier target return that cannot be
+  reached is recorded as NaN instead (see docs/INTERFACE_CONTRACT.md).
 """
 
 from dataclasses import dataclass
@@ -32,6 +36,14 @@ from fuzzy_system_research.optimization.portfolio import (
 )
 
 
+# Written directly above the top-level optimum_portfolio key in
+# optimization_metadata.yml. The key keeps its name for compatibility with
+# readers (see docs/INTERFACE_CONTRACT.md); the comment says what it holds.
+OPTIMUM_PORTFOLIO_COMMENT = (
+    "# optimum_portfolio is the maximum Sharpe ratio (tangency) portfolio."
+)
+
+
 @dataclass(frozen=True)
 class PortfolioAssets:
     """
@@ -48,7 +60,8 @@ class OptimizationResult:
     """
     Results of one portfolio optimization run. All returns and risks are
     annualized arithmetically and in percent; the Sharpe ratio is
-    annualized and dimensionless; weights are in percent.
+    annualized and dimensionless; weights are in percent, keyed by ticker,
+    for both the max Sharpe ratio and the minimum variance portfolio.
     """
 
     date_from: pd.Timestamp
@@ -65,6 +78,7 @@ class OptimizationResult:
     max_sharpe_weights_pct: dict[str, float]
     min_var_risk: float
     min_var_return: float
+    min_var_weights_pct: dict[str, float]
 
 
 def run_portfolio_optimization(
@@ -95,6 +109,12 @@ def run_portfolio_optimization(
     -------
     OptimizationResult
         Annualized results of the run.
+
+    Raises
+    ------
+    portfolio.OptimizationError
+        If the minimum variance or the max Sharpe ratio optimization does
+        not converge.
     """
     assets = PortfolioAssets(tickers=tuple(wide_df.columns))
     print(
@@ -115,17 +135,17 @@ def run_portfolio_optimization(
     min_var_risk, min_var_weights, min_var_return = calc_min_variance_portfolio(
         assets, cov_np, mean_returns
     )
+    min_var_weights_pct_dict = pd.Series(
+        min_var_weights * 100, index=mean_returns.index
+    ).to_dict()
+    print("Minimum variance weights %:")
+    print(min_var_weights_pct_dict)
     optimized_risks, target_returns = calc_efficient_frontier(
         assets, min_var_return, max(simulated_returns), mean_returns, cov_np
     )
-    print("Efficient frontier target returns")
-    print(target_returns)
-    print("Efficient frontier optimized risks")
-    print(optimized_risks)
     best_sharpe_ratio, best_weights, opt_risk, opt_return = optimize_sharpe_ratio(
         assets, daily_risk_free_rate, mean_returns, cov_np
     )
-    print(f"best_sharpe_ratio={best_sharpe_ratio}, best_weights={best_weights}")
     best_weights_pct_dict = pd.Series(
         best_weights * 100, index=mean_returns.index
     ).to_dict()
@@ -150,6 +170,7 @@ def run_portfolio_optimization(
         max_sharpe_weights_pct=best_weights_pct_dict,
         min_var_risk=float(annualize_risk(min_var_risk)),
         min_var_return=float(annualize_return(min_var_return)),
+        min_var_weights_pct=min_var_weights_pct_dict,
     )
     print("annualized_optimum_return, annualized_optimum_risk, annualized_sharpe_ratio")
     print(result.max_sharpe_return, result.max_sharpe_risk, result.sharpe_ratio)
@@ -159,7 +180,7 @@ def run_portfolio_optimization(
 def write_plot_data_h5(result: OptimizationResult, path: str) -> None:
     """
     Write portfolio_optimization_plot_data.h5 as specified in
-    INTERFACE_CONTRACT.md: five groups of xs (risk) / ys (return) datasets
+    docs/INTERFACE_CONTRACT.md: five groups of xs (risk) / ys (return) datasets
     plus root attributes describing the units. Overwrites the file.
 
     Parameters
@@ -196,7 +217,9 @@ def build_optimization_metadata(
 ) -> dict:
     """
     Build the contents of optimization_metadata.yml as specified in
-    INTERFACE_CONTRACT.md. Pure function.
+    docs/INTERFACE_CONTRACT.md, including the weights (in percent) of both
+    the max Sharpe ratio portfolio and the minimum variance portfolio. Pure
+    function.
 
     Parameters
     ----------
@@ -235,14 +258,44 @@ def build_optimization_metadata(
         "min_var_portfolio": {
             "annualized_return": result.min_var_return,
             "risk": result.min_var_risk,
+            "weights": result.min_var_weights_pct,
         },
     }
 
 
+def optimization_metadata_yaml(metadata: dict) -> str:
+    """
+    Render optimization_metadata.yml as text: block style, keys sorted, with
+    OPTIMUM_PORTFOLIO_COMMENT on the line directly above the top-level
+    optimum_portfolio key, because that key's name does not say which
+    portfolio it is. YAML parsers ignore comments, so the parsed contents
+    are exactly metadata. Pure function.
+
+    Parameters
+    ----------
+    metadata : dict
+        As returned by build_optimization_metadata().
+
+    Returns
+    -------
+    str
+        The YAML text.
+    """
+    lines = yaml.dump(metadata, default_flow_style=False).splitlines(keepends=True)
+    return "".join(
+        f"{OPTIMUM_PORTFOLIO_COMMENT}\n{line}"
+        if line.startswith("optimum_portfolio:")
+        else line
+        for line in lines
+    )
+
+
 def write_optimization_metadata(metadata: dict, path: str) -> None:
     """
-    Write optimization_metadata.yml (block style, keys sorted). Overwrites
-    the file.
+    Write optimization_metadata.yml as rendered by
+    optimization_metadata_yaml() (block style, keys sorted, with a comment
+    identifying optimum_portfolio as the max Sharpe ratio portfolio).
+    Overwrites the file.
 
     Parameters
     ----------
@@ -253,4 +306,4 @@ def write_optimization_metadata(metadata: dict, path: str) -> None:
         Local path of the .yml file to write. Its folder must exist.
     """
     with open(path, "w") as f:
-        yaml.dump(metadata, f, default_flow_style=False)
+        f.write(optimization_metadata_yaml(metadata))

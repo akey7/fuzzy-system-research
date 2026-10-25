@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 26 |
-| **Last updated** | 2026-10-18 |
+| **Contract version** | 30 |
+| **Last updated** | 2026-10-24 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
 This file is stored **byte-for-byte identically** in both repos. It describes the files the backend uploads to one S3-compatible bucket (a DigitalOcean Space, accessed with `boto3`) and the frontend reads. Treat it as a public API.
@@ -67,7 +67,7 @@ Dev and production are selected by the configured Space and folder names; the ke
 
 A date is **available** only when its data is complete in **both** folders:
 
-1. Key `<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/optimization_metadata.yml` exists. The backend uploads this file last of all three, so its presence means both optimization files for that date are complete (and, since v10, that the forecasts were uploaded just before).
+1. Key `<FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER>/YYYY-MM-DD/optimization_metadata.yml` exists. The backend uploads this file last of all the files for a date, so its presence means both optimization files for that date are complete (and, since v10, that the forecasts were uploaded just before).
 2. Key `<FSF_FRONT_END_TIME_SERIES_FOLDER>/YYYY-MM-DD/all_forecasts.csv` exists.
 
 Since v10, one backend run computes everything first and then uploads its files in the order `all_forecasts.csv`, `all_forecasts_metadata.yml` (since v21), `portfolio_optimization_plot_data.h5`, `optimization_metadata.yml`; if any computation fails, nothing is uploaded. Because `optimization_metadata.yml` is last, its presence (for v21+ runs) also means the forecasts metadata is complete. `all_forecasts_metadata.yml` is not part of the availability rule, since older dates do not have it. Readers must still check both folders, because dates written before v10 came from two separate scripts. Dates present in only one folder (for example, only one of the two pre-v10 scripts was run) are **not** available and must not be offered to users.
@@ -163,6 +163,27 @@ Things to notice in the example:
 - `weights` keys are sorted alphabetically, but `tickers` is in the backend's own order. Neither order is significant.
 - Weights carry **floating-point noise**: a weight that is effectively zero can appear as `7.59701304408773e-15`, and a weight at the cap appears as `39.99999999999994` instead of `40.0`. Values can be written in scientific notation.
 
+Since v30, the file has one comment line directly above the `optimum_portfolio` key (the example above predates it), because the key's name does not say which portfolio it is:
+
+```yaml
+# optimum_portfolio is the maximum Sharpe ratio (tangency) portfolio.
+optimum_portfolio:
+```
+
+YAML parsers ignore comments, so the parsed contents are unchanged. The key keeps its name for compatibility.
+
+Since v28, `min_var_portfolio` also has a `weights` map, in the same form as `optimum_portfolio.weights` (the example above predates it). Illustrative values:
+
+```yaml
+min_var_portfolio:
+  annualized_return: 12.851676947885277
+  risk: 6.89459351276483
+  weights:            # one key per ticker; only three shown here
+    ETHA: 1.2e-15
+    FXE: 39.99999999999998
+    GLD: 21.403
+```
+
 ### Fields
 
 | Path | Type | Meaning |
@@ -179,17 +200,20 @@ Things to notice in the example:
 | `optimum_portfolio.sharpe_ratio` | float | Annualized Sharpe ratio of that portfolio (dimensionless): daily Sharpe × √252 = (`annualized_return` − `risk_free_rate.risk_free_rate`) / `risk`. *Added in v4.* |
 | `min_var_portfolio.annualized_return` | float | Expected return of the minimum variance portfolio, **annualized arithmetically, in percent**. *Added in v4.* |
 | `min_var_portfolio.risk` | float | Standard deviation of the minimum variance portfolio's returns, **annualized, in percent**. *Added in v4.* |
+| `min_var_portfolio.weights` | map ticker → float | Weights of the minimum variance portfolio, **in percent**, one key per ticker, in the same form and with the same floating-point noise as `optimum_portfolio.weights`. *Added in v28; absent in older files, so treat it as optional.* |
 | `annualization.method` | string | Always `arithmetic` in v4. Describes how every return and risk in both optimization files was annualized. *Added in v4.* |
 | `annualization.periods_per_year` | int | Trading days per year used for annualization (`252`). *Added in v4.* |
 
 ### Notes
 
-- **Weight noise.** Treat any weight with absolute value below `1e-6` (percent) as zero, and round for display. Never compare a weight to an exact value such as `0` or `40`, and never assume a "zero" weight is written as exactly `0.0`. Do not assume the weights sum to exactly 100; they sum to 100 only within the optimizer's tolerance.
-- The optimization is long-only, weights sum to 100 (within optimizer tolerance), and each weight is currently capped at `4 / (number of tickers)` of the portfolio (40 % with 10 tickers). Those constraints are the optimizer's current settings, not a contractual guarantee. Do not hard-code them in the frontend.
+- **Weight noise.** These rules apply to both weight maps (`optimum_portfolio.weights` and, since v28, `min_var_portfolio.weights`). Treat any weight with absolute value below `1e-6` (percent) as zero, and round for display. Never compare a weight to an exact value such as `0` or `40`, and never assume a "zero" weight is written as exactly `0.0`. Do not assume the weights sum to exactly 100; they sum to 100 only within the optimizer's tolerance.
+- **Converged optimizations only** (since v29). If either the max Sharpe ratio or the minimum variance optimization does not converge, the backend run fails and nothing is uploaded for that date, so every uploaded weight, return, risk, and Sharpe ratio comes from a converged optimization. (An efficient-frontier target return the optimizer cannot reach is still recorded as `NaN` in the `.h5` file; see that section.)
+- Both portfolios are optimized under the same constraints: long-only, weights sum to 100 (within optimizer tolerance), and each weight is currently capped at `4 / (number of tickers)` of the portfolio (40 % with 10 tickers). Those constraints are the optimizer's current settings, not a contractual guarantee. Do not hard-code them in the frontend.
 - Inputs (mean returns and covariance) are estimated from roughly one year of daily data, so the optimum is noisy and sensitive to the window. Say so in user-facing text.
-- Only the **max Sharpe ratio** portfolio's weights are in this file. The minimum variance portfolio has annualized return and risk (here and as a point in the `.h5` file) but no weights.
+- **Weights of both portfolios.** Since v28 this file has the weights of both the max Sharpe ratio portfolio (`optimum_portfolio.weights`) and the minimum variance portfolio (`min_var_portfolio.weights`). Before v28, only the max Sharpe ratio weights were included; for those dates, show the minimum variance portfolio's return and risk without weights. The minimum variance portfolio depends only on the estimated covariance of returns, not on expected returns or the risk-free rate, so its weights are usually more stable from one date to the next than the max Sharpe ratio weights.
+- **Suggested wording near a table of both portfolios' weights:** "The minimum variance portfolio uses only the estimated covariance of returns, not expected returns, so it is usually more stable from one date to the next than the max Sharpe portfolio. Both are estimated from about a year of daily data and share the same constraints (long-only, capped weights)."
 - `optimum_portfolio` and `min_var_portfolio` values equal the `max_sharpe_ratio` and `min_var_portfolio` points in the `.h5` file from the same run (same units).
-- **Detecting older files.** A file without an `annualization` key predates v4; its `annualized_return` is compounded and it has no Sharpe ratio or min-variance section.
+- **Detecting older files.** A file without an `annualization` key predates v4; its `annualized_return` is compounded and it has no Sharpe ratio or min-variance section. A file whose `min_var_portfolio` has no `weights` key predates v28.
 
 ---
 
@@ -448,13 +472,13 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 - `optimization_metadata.yml` (v5 output): every key in the example above, including the v4 additions, quoted date strings, and floating-point noise in weights. The values are internally consistent: `sharpe_ratio` = (`annualized_return` − `risk_free_rate`) / `risk` = (34.343 − 4.05) / 12.440 = 2.435.
 - `portfolio_optimization_plot_data.h5` (v5 output, `h5dump -A`): the five root attributes with the documented values and types (variable-length UTF-8 strings; `periods_per_year` is `H5T_STD_I64LE`), plus group names, dataset names, dtype (`H5T_IEEE_F64LE`), and shapes (100, 1, 1, 10000, 100).
 - `all_forecasts.csv`: first column `pred_date`, the `T_arima` / `T` naming, and empty actuals in the final row.
-- The "How the forecasts are produced" description matches the backend's `run()` defaults.
+- The "How the forecasts are produced" description matched the backend's defaults at the time (the pre-v24 method). The current method (v24+) is checked against the code and unit tests (`tests/test_arima_models.py`, `tests/test_ticker_predict.py`), not yet against real output.
 - `.h5` values (v5 output, `h5dump -d`): `max_sharpe_ratio` = (12.4398, 34.3434) and `min_var_portfolio` = (6.89459, 12.8517) equal the YAML `risk` / `annualized_return` of the same run. `tangency_line/ys` starts at 4.05 (= `risk_free_rate`), is evenly spaced (a straight line), and passes through the max Sharpe ratio point with slope `sharpe_ratio`.
 - The annualization formulas and the straight tangency line are covered by the backend's unit tests (`tests/test_annualization.py`).
 
 **Not yet** verified against real data (derived from the code):
 
-- That the date folder equals `date_updated.date_to`, and the upload order (forecasts, `.h5`, then `optimization_metadata.yml`). The construction of the date part of the key and of local paths is covered by unit tests (`tests/test_layout.py`).
+- That the date folder equals `date_updated.date_to`, and the upload order (`all_forecasts.csv`, `all_forecasts_metadata.yml`, `.h5`, then `optimization_metadata.yml`). The construction of the date part of the key and of local paths is covered by unit tests (`tests/test_layout.py`).
 - The v8 NYSE calendar behavior on real data (covered by unit tests in `tests/test_date_manager.py`).
 - `all_forecasts_metadata.yml` (v21) on real output. The metric formulas are covered by unit tests on hand-computed tables (`tests/test_metrics.py`), and the file's windows and upload order by `tests/test_pipeline.py`.
 - `NaN` entries in `efficient_frontier/xs` (inferred from the code for infeasible target returns). Readers must handle `NaN` regardless.
@@ -463,6 +487,10 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 30 | 2026-10-24 | Non-breaking; no change to keys, values, types, or units. `optimization_metadata.yml` now has a comment line, `# optimum_portfolio is the maximum Sharpe ratio (tangency) portfolio.`, directly above the `optimum_portfolio` key, because the key's name is ambiguous. YAML parsers ignore comments, so the parsed contents are unchanged; the key is not renamed. Frontend: no change required; replace its copy with this file. Where the UI labels this section, call it the maximum Sharpe ratio portfolio. |
+| 29 | 2026-10-24 | Backend safeguard; no change to files, keys, columns, types, units, or the meaning of any value. The backend now checks that the max Sharpe ratio and minimum variance optimizations converge; if either does not, the run fails before uploading, as a missing risk-free rate already does (v14). Before v29 an unconverged optimization's weights could have been uploaded without warning. Efficient-frontier points the optimizer cannot reach are still `NaN`, as before. Added the "Converged optimizations only" note to `optimization_metadata.yml`. Frontend: no change required; replace its copy with this file. |
+| 28 | 2026-10-24 | **Additive.** `optimization_metadata.yml` gains `min_var_portfolio.weights`: the minimum variance portfolio's weights in percent, one key per ticker, in the same form (and with the same floating-point noise) as `optimum_portfolio.weights`. The backend already computed these weights but did not upload them. No other key, file, value, unit, or upload order changes; the `.h5` file is unchanged. Added the field, a short example, the note that both weight maps follow the weight-noise rules, and suggested wording for showing both portfolios. Frontend: optionally show the minimum variance weights next to the max Sharpe ratio weights (applying the weight-noise rules to both); treat the key as optional, since dates before v28 lack it. |
+| 27 | 2026-10-19 | Documentation only; no change to files, keys, columns, types, units, values, or reader behavior. Corrected three stale passages left from before v21 and v24: "Which dates are available" said `optimization_metadata.yml` is uploaded "last of all three" (there are four files per date; it is still last); "Verification status" listed the upload order without `all_forecasts_metadata.yml`; and it said the forecast description matches the backend's `run()` defaults, a function that no longer exists, so it now says that check applied to the pre-v24 method and the current method is checked by code and unit tests only. Frontend: no change required; replace its copy with this file. |
 | 26 | 2026-10-18 | Documentation only; no change to files, keys, columns, types, units, or values. The training window length and the number of scored days are backend settings that can change between runs, so the contract no longer states their current values anywhere outside this changelog. Instead it points readers at the data: `forecast_window.training_window_returns` and `evaluation_window.target_trading_days` in `all_forecasts_metadata.yml`, and the rows of `all_forecasts.csv`. The metadata example shows window-dependent values as placeholders. Reader requirement 2 now also forbids hard-coding the window lengths. The suggested forecast-plot text now fills in the training window length (`{w}`, from `training_window_returns` + 1) instead of a fixed figure, like the metrics wording already does with `{n}`. Also fixes a leftover "same 20 days" in the relative MAE note. Frontend must: fill `{w}` in the forecast-plot text from the metadata (or leave the parenthesis out when the file is absent), and make sure no window length or row count is hard-coded. |
 | 25 | 2026-10-18 | **Configuration change**; no key, column, file name, type, or unit is renamed, removed, or changed. The backtest now scores the last **60** trading days instead of 20 (set in the backend's `config/modeling_and_optimization.yml`). `all_forecasts.csv` normally has 61 rows (60 backtest + live) instead of 21, covering about three months, and the backend models the last 312 sessions instead of 272. In `all_forecasts_metadata.yml`, `evaluation_window.target_trading_days` is 60, `n_evaluated` and `n_directional` are normally 60, and the evaluation start dates move about three months back; the metrics are computed over 60 days, so they are less noisy than over 20 but still a modest sample. The training window (252 closes) and the optimization files are unchanged. The contract now states the number of scored days and the row count in terms of `target_trading_days` rather than as a fixed number, so a later change to the setting needs no frontend text change. Date folders written before v25 keep their 20-day metrics and 21 rows unless re-run with `--retrain-arima`. Frontend must: fill the number in the suggested metrics wording from `evaluation_window.target_trading_days` (it said "20 trading days" and "Twenty days" before); check that nothing assumes 21 rows or about one month of backtest on the x-axis. |
 | 24 | 2026-10-17 | **Methodology change**; no key, column, file name, format, or unit is renamed, removed, or retyped. Each ARIMA forecast is now trained on the preceding trading year (252 closes, 251 daily log returns) instead of 20 returns, and orders are chosen by the **lowest BIC** of one fit per candidate on that whole window instead of by RMSE and BIC rank on rolling 10-return sub-windows; the winning model makes the forecast. Ties (exactly equal BICs) go to fewer parameters, then lower `p`. The backend now models the last 272 sessions; `all_forecasts.csv` still normally has 21 rows (20 backtest + live) and its columns are unchanged. In `all_forecasts_metadata.yml`, values change but keys do not: `forecast_window.training_window_returns` is 251, `training_window_start_date` is about a year before the date folder, `models.arima.order_selection` and `order_selection_tie_break` describe the new rule, and `order_selection_subwindow_returns` equals the training window (251). The optimization files are unchanged: they use exactly the last 252 sessions (previously all downloaded rows, which could be one more session, so `date_updated.date_from` can move one session later). Date folders uploaded before v24 keep their 20-return forecasts unless re-run with `--retrain-arima`, so comparisons across dates mix the two methods; `training_window_returns` tells them apart. Frontend must: update the forecast-plot text to say the model is refit on the previous trading year (see "Suggested user-facing wording"); show any order-selection text from the metadata rather than hard-coding the old rule. |

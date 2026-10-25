@@ -109,7 +109,7 @@ def bucket_key(as_of: str, filename: str) -> str:
 def object_key(folder: str, as_of: str, filename: str) -> str:
     """
     Return the full object key of a run's file in the frontend Space, as
-    specified in INTERFACE_CONTRACT.md.
+    specified in docs/INTERFACE_CONTRACT.md.
 
     Parameters
     ----------

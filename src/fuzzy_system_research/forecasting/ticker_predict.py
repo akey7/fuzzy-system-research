@@ -383,7 +383,7 @@ def load_or_train_forecasts(
     models only when needed. The CSV at path is the cache: if it exists and
     retrain is False, nothing is trained and the file is left as is.
     Otherwise the models are trained on window_df and the CSV is (over)written
-    in the format of all_forecasts.csv in INTERFACE_CONTRACT.md.
+    in the format of all_forecasts.csv in docs/INTERFACE_CONTRACT.md.
 
     Parameters
     ----------
