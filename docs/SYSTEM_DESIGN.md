@@ -26,13 +26,14 @@ One run of `scripts/run_optimization_and_time_series.py` downloads prices, then 
         ├────────────────────────────────┐   (run in order: 2, then 3)
         ▼                                ▼
  2. TIME SERIES                     3. OPTIMIZATION
- forecasting/ticker_predict.py      optimization/portfolio.py  ◄── [FRED: DTB3]
-   walk-forward windows,              optimizers, risk-free rate (cache in input/)
-   worker pool                      optimization/workflow.py
- forecasting/arima_models.py          full optimization run, .h5 and .yml writers
-   ARIMA fits, order by BIC
- forecasting/metrics.py
-   accuracy vs. naive, .yml writer
+ forecasting/ticker_predict.py      optimization/problem.py
+   walk-forward windows,              PortfolioProblem: estimates, constraints,
+   worker pool                        portfolio_stats(), feasible sampler
+ forecasting/arima_models.py        optimization/portfolio.py  ◄── [FRED: DTB3]
+   ARIMA fits, order by BIC           optimizers, risk-free rate (cache in input/)
+ forecasting/metrics.py             optimization/workflow.py
+   accuracy vs. naive, .yml writer    full optimization run, invariant checks,
+                                      .h5 and .yml writers, file cross-check
         │                                │
         └────────────────┬───────────────┘
                          ▼
@@ -45,8 +46,9 @@ One run of `scripts/run_optimization_and_time_series.py` downloads prices, then 
 ```
 
 - The two paths run one after the other in a single process. Within the time series path, the ARIMA fits for every ticker and day run at the same time in a pool of worker processes (`--workers`).
-- The ARIMA window and the number of scored days come from the configuration file (see "Model settings" in [INSTALLATION_AND_EXECUTION.md](INSTALLATION_AND_EXECUTION.md#model-settings)); the optimization window is set in `pipeline.py`.
-- Nothing is uploaded unless every step succeeds.
+- The ARIMA window, the number of scored days, and the optimization's weight cap, plot array lengths, and random seed come from the configuration file (see "Model settings" in [INSTALLATION_AND_EXECUTION.md](INSTALLATION_AND_EXECUTION.md#model-settings)); the optimization window is set in `pipeline.py`.
+- The optimization has one definition, `PortfolioProblem` in `optimization/problem.py`. Its constraint set is used by every optimizer and by the random portfolios, and its `portfolio_stats()` computes every return, risk, and Sharpe ratio that is uploaded, so the plot cannot drift from the optimization. `workflow.py` checks the invariants (see its `check_optimization_invariants()`) before the files are written, then reads both written files back and checks that they agree.
+- Nothing is uploaded unless every step succeeds, including those checks.
 
 ## Files read and written
 
@@ -105,7 +107,7 @@ fuzzy-system-research/
 └── output/                       # Results of runs (not committed)
 ```
 
-Scripts contain argument handling and orchestration: they decide *what* to run. The package contains the computation and I/O helpers: it knows *how*. Scripts import from the package (for example, `from fuzzy_system_research.optimization.portfolio import calc_min_variance_portfolio`), and the package never imports from `scripts/`. This keeps the quantitative code importable and testable without triggering a download or an upload.
+Scripts contain argument handling and orchestration: they decide *what* to run. The package contains the computation and I/O helpers: it knows *how*. Scripts import from the package (for example, `from fuzzy_system_research.pipeline import run_pipeline`), and the package never imports from `scripts/`. This keeps the quantitative code importable and testable without triggering a download or an upload.
 
 ### Data folders
 
@@ -143,12 +145,13 @@ These modules are imported by the scripts and are not meant to be executed direc
 
 | Module (under `src/fuzzy_system_research/`) | Purpose                                                                                                                                                 | Uploads to front end?                |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `config.py`                                 | Reads and strictly validates `config/modeling_and_optimization.yml` into `TimeSeriesConfig`.                                                            | No                                   |
+| `config.py`                                 | Reads and strictly validates `config/modeling_and_optimization.yml` into `TimeSeriesConfig` and `PortfolioOptimizationConfig`. | No |
 | `data/ticker_download_manager.py`           | Downloads new data from Massive.com or retrieves old data from the cache.                                                                               | No                                   |
 | `data/date_manager.py`                      | Date and business day calculations on the NYSE trading calendar (via `exchange_calendars`).                                                             | No                                   |
 | `data/prices.py`                            | Pivots downloaded prices to a wide table and selects the most recent trading sessions.                                                                 | No                                   |
-| `optimization/portfolio.py`                 | Monte Carlo portfolio simulation, minimum variance and max Sharpe ratio optimization (raising `OptimizationError` if either does not converge), efficient frontier (unreachable targets become `NaN`), annualization, and risk-free rate retrieval. | No                                   |
-| `optimization/workflow.py`                  | One full optimization run from prices to annualized results, plus the `.h5` and `.yml` writers. The `.yml` holds the weights of both the max Sharpe ratio and the minimum variance portfolios, with a comment marking `optimum_portfolio` as the max Sharpe ratio portfolio. | No                                   |
+| `optimization/problem.py`                   | `PortfolioProblem`, the one definition of the optimization: mean and covariance estimates, risk-free rate, the constraint set (`bounds()`, `constraints()`: long-only, sum to 1, configurable cap), `portfolio_stats()` (every uploaded return, risk, and Sharpe ratio), a seeded sampler of feasible random portfolios, and the annualization helpers. | No |
+| `optimization/portfolio.py`                 | Max Sharpe ratio, minimum variance, and maximum return optimizations under the shared constraints (raising `OptimizationError` if one does not converge), the efficient frontier (unreachable targets become `NaN`), and risk-free rate retrieval. | No |
+| `optimization/workflow.py`                  | One full optimization run from prices to annualized results, all from one `PortfolioProblem`: the capital allocation line, the invariant checks (`InvariantError`), the `.h5` and `.yml` writers, and a read-back check that the two files agree. The `.yml` holds the weights of both the max Sharpe ratio and the minimum variance portfolios, with a comment marking `optimum_portfolio` as the max Sharpe ratio portfolio. | No |
 | `forecasting/arima_models.py`               | Trains ARIMA models on price data.                                                                                                                      | No                                   |
 | `forecasting/ticker_predict.py`             | `ArimaWalkForward`: walk-forward ARIMA training over rolling windows; `load_or_train_forecasts` caches the result.                                      | No                                   |
 | `forecasting/metrics.py`                    | Accuracy of the ARIMA and naive forecasts over the configured number of most recent trading days (RMSE, MAE, MAPE, relative MAE, skill, directional accuracy) for `all_forecasts_metadata.yml`. | No |
