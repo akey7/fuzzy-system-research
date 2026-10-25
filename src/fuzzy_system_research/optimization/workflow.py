@@ -13,6 +13,10 @@ Conventions (unchanged from the original script):
   weights unchanged and keeps the tangency line straight.
 - Mean returns and covariance are estimated from about one year of daily
   data, so the results are noisy.
+- The minimum variance and max Sharpe ratio optimizations must converge;
+  otherwise portfolio.OptimizationError stops the run before the
+  optimization files are written and before anything is uploaded. An efficient-frontier target return that cannot be
+  reached is recorded as NaN instead (see docs/INTERFACE_CONTRACT.md).
 """
 
 from dataclasses import dataclass
@@ -97,6 +101,12 @@ def run_portfolio_optimization(
     -------
     OptimizationResult
         Annualized results of the run.
+
+    Raises
+    ------
+    portfolio.OptimizationError
+        If the minimum variance or the max Sharpe ratio optimization does
+        not converge.
     """
     assets = PortfolioAssets(tickers=tuple(wide_df.columns))
     print(

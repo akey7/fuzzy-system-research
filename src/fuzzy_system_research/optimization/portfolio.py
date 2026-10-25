@@ -10,6 +10,22 @@ from fuzzy_system_research.storage.layout import ensure_parent_dir
 TRADING_DAYS_PER_YEAR = 252
 
 
+class OptimizationError(RuntimeError):
+    """A portfolio optimization did not converge, so its result is unusable."""
+
+
+def _require_success(result, name: str) -> None:
+    """
+    Raise OptimizationError unless the scipy.optimize.minimize() result
+    reports success, naming the optimization and SciPy's status and message.
+    """
+    if not result.success:
+        raise OptimizationError(
+            f"The {name} optimization did not converge "
+            f"(status {result.status}: {result.message})."
+        )
+
+
 def annualize_return(
     daily_return: float | np.ndarray | list[float],
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
@@ -224,6 +240,12 @@ def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
     -------
     float, float, float
         Minimum variance risk, minimum variance weights, minimum variance return.
+
+    Raises
+    ------
+    OptimizationError
+        If the optimizer does not converge, so no unconverged weights are
+        returned.
     """
     weight_bounds = calc_weight_bounds(tdm)
     D = len(tdm.tickers)
@@ -243,6 +265,7 @@ def calc_min_variance_portfolio(tdm, cov_np, mean_returns):
     )
     print("Minimum variance portfolio optimization result:")
     print(min_var_result)
+    _require_success(min_var_result, "minimum variance")
     min_var_risk = np.sqrt(min_var_result.fun)
     min_var_weights = min_var_result.x
     min_var_return = min_var_weights.dot(mean_returns)
@@ -434,6 +457,12 @@ def optimize_sharpe_ratio(tdm, daily_risk_free_rate, mean_returns, cov_np):
     best_sharpe_ratio, best_weights, opt_risk, opt_return
         Optimized Sharpe ratio, portfolio rates, optimal portfolio risk,
         and optimal return.
+
+    Raises
+    ------
+    OptimizationError
+        If the optimizer does not converge, so no unconverged weights are
+        returned.
     """
     D = len(tdm.tickers)
 
@@ -452,6 +481,7 @@ def optimize_sharpe_ratio(tdm, daily_risk_free_rate, mean_returns, cov_np):
         bounds=calc_weight_bounds(tdm),
         constraints={"type": "eq", "fun": portfolio_weights_constraint},
     )
+    _require_success(sharpe_ratio_result, "max Sharpe ratio")
     best_sharpe_ratio = -sharpe_ratio_result.fun
     best_weights = sharpe_ratio_result.x
     opt_risk = np.sqrt(best_weights.dot(cov_np).dot(best_weights))

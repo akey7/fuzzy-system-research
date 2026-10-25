@@ -11,6 +11,7 @@ import yaml
 from conftest import make_long_prices
 from fuzzy_system_research.data.prices import pivot_close_wide
 from fuzzy_system_research.optimization import workflow
+from fuzzy_system_research.optimization.portfolio import OptimizationError
 from fuzzy_system_research.optimization.workflow import (
     OptimizationResult,
     build_optimization_metadata,
@@ -222,6 +223,22 @@ def test_weight_cap_binds_with_many_assets():
         assert (weights <= 50 + 1e-4).all()
         assert (weights >= -1e-6).all()
         assert weights.sum() == pytest.approx(100, abs=1e-3)
+
+
+@pytest.mark.parametrize(
+    "optimizer, name",
+    [
+        ("calc_min_variance_portfolio", "minimum variance"),
+        ("optimize_sharpe_ratio", "max Sharpe ratio"),
+    ],
+)
+def test_unconverged_optimization_stops_the_run(wide, monkeypatch, optimizer, name):
+    def not_converged(*args, **kwargs):
+        raise OptimizationError(f"The {name} optimization did not converge.")
+
+    monkeypatch.setattr(workflow, optimizer, not_converged)
+    with pytest.raises(OptimizationError, match=name):
+        run_portfolio_optimization(wide, DAILY_RF, rng=np.random.default_rng(0))
 
 
 def test_tangency_line_survives_nan_first_frontier_point(wide, monkeypatch):
