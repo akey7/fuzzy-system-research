@@ -60,6 +60,31 @@ def test_weights_are_long_only_and_sum_to_100(result, wide):
     assert sum(weights.values()) == pytest.approx(100, abs=1e-3)
 
 
+def test_min_var_weights_are_long_only_and_sum_to_100(result, wide):
+    weights = result.min_var_weights_pct
+    assert set(weights) == set(wide.columns)
+    assert all(w >= -1e-6 for w in weights.values())
+    assert sum(weights.values()) == pytest.approx(100, abs=1e-3)
+    assert all(isinstance(w, float) for w in weights.values())
+
+
+def test_min_var_weights_reproduce_min_var_risk_and_return(result, wide):
+    # The stored weights must be the ones that produced the uploaded risk and
+    # return: recompute both from the same daily percent returns.
+    returns = wide.pct_change().iloc[1:] * 100
+    w = np.array([result.min_var_weights_pct[t] for t in wide.columns]) / 100
+    daily_risk = np.sqrt(w @ returns.cov().to_numpy() @ w)
+    daily_return = w @ returns.mean().to_numpy()
+    assert result.min_var_risk == pytest.approx(daily_risk * np.sqrt(252), rel=1e-9)
+    assert result.min_var_return == pytest.approx(daily_return * 252, rel=1e-9)
+
+
+def test_min_var_portfolio_is_no_riskier_than_any_simulated_portfolio(result):
+    # With 3 assets the weight cap never binds, so every random long-only
+    # portfolio is feasible for the optimizer. Allow for SLSQP's tolerance.
+    assert result.min_var_risk <= result.simulated_risks.min() * (1 + 1e-3)
+
+
 def test_sharpe_ratio_identity_in_annual_units(result):
     expected = (result.max_sharpe_return - ANNUAL_RF) / result.max_sharpe_risk
     assert result.sharpe_ratio == pytest.approx(expected, rel=1e-9)
@@ -132,6 +157,7 @@ def test_build_optimization_metadata(result):
     assert metadata["min_var_portfolio"] == {
         "annualized_return": result.min_var_return,
         "risk": result.min_var_risk,
+        "weights": result.min_var_weights_pct,
     }
 
 
@@ -144,6 +170,14 @@ def test_metadata_yaml_round_trip_keeps_dates_as_strings(result, tmp_path):
     assert isinstance(loaded["date_updated"]["date_to"], str)
     assert isinstance(loaded["risk_free_rate"]["risk_free_rate_date"], str)
     assert loaded["optimum_portfolio"]["risk"] == pytest.approx(result.max_sharpe_risk)
+    # Both weight maps load as plain floats keyed by ticker, not numpy tags.
+    for section in ("optimum_portfolio", "min_var_portfolio"):
+        weights = loaded[section]["weights"]
+        assert set(weights) == {"XBI", "QQQ", "GLD"}
+        assert all(isinstance(w, float) for w in weights.values())
+    assert loaded["min_var_portfolio"]["weights"] == pytest.approx(
+        result.min_var_weights_pct
+    )
 
 
 # Optimality. With 3 assets the 4/N weight cap is 133 %, so it never binds and
@@ -182,11 +216,12 @@ def test_weight_cap_binds_with_many_assets():
     tickers = ["A", "B", "C", "D", "E", "F", "G", "H"]
     wide8 = pivot_close_wide(make_long_prices(tickers=tickers, n_sessions=80, seed=11))
     res = run_portfolio_optimization(wide8, DAILY_RF, rng=np.random.default_rng(0))
-    weights = np.array(list(res.max_sharpe_weights_pct.values()))
-    assert len(weights) == 8
-    assert (weights <= 50 + 1e-4).all()
-    assert (weights >= -1e-6).all()
-    assert weights.sum() == pytest.approx(100, abs=1e-3)
+    for weights_pct in (res.max_sharpe_weights_pct, res.min_var_weights_pct):
+        weights = np.array(list(weights_pct.values()))
+        assert len(weights) == 8
+        assert (weights <= 50 + 1e-4).all()
+        assert (weights >= -1e-6).all()
+        assert weights.sum() == pytest.approx(100, abs=1e-3)
 
 
 def test_tangency_line_survives_nan_first_frontier_point(wide, monkeypatch):

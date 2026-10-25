@@ -48,7 +48,8 @@ class OptimizationResult:
     """
     Results of one portfolio optimization run. All returns and risks are
     annualized arithmetically and in percent; the Sharpe ratio is
-    annualized and dimensionless; weights are in percent.
+    annualized and dimensionless; weights are in percent, keyed by ticker,
+    for both the max Sharpe ratio and the minimum variance portfolio.
     """
 
     date_from: pd.Timestamp
@@ -65,6 +66,7 @@ class OptimizationResult:
     max_sharpe_weights_pct: dict[str, float]
     min_var_risk: float
     min_var_return: float
+    min_var_weights_pct: dict[str, float]
 
 
 def run_portfolio_optimization(
@@ -115,6 +117,11 @@ def run_portfolio_optimization(
     min_var_risk, min_var_weights, min_var_return = calc_min_variance_portfolio(
         assets, cov_np, mean_returns
     )
+    min_var_weights_pct_dict = pd.Series(
+        min_var_weights * 100, index=mean_returns.index
+    ).to_dict()
+    print("Minimum variance weights %:")
+    print(min_var_weights_pct_dict)
     optimized_risks, target_returns = calc_efficient_frontier(
         assets, min_var_return, max(simulated_returns), mean_returns, cov_np
     )
@@ -150,6 +157,7 @@ def run_portfolio_optimization(
         max_sharpe_weights_pct=best_weights_pct_dict,
         min_var_risk=float(annualize_risk(min_var_risk)),
         min_var_return=float(annualize_return(min_var_return)),
+        min_var_weights_pct=min_var_weights_pct_dict,
     )
     print("annualized_optimum_return, annualized_optimum_risk, annualized_sharpe_ratio")
     print(result.max_sharpe_return, result.max_sharpe_risk, result.sharpe_ratio)
@@ -196,7 +204,9 @@ def build_optimization_metadata(
 ) -> dict:
     """
     Build the contents of optimization_metadata.yml as specified in
-    docs/INTERFACE_CONTRACT.md. Pure function.
+    docs/INTERFACE_CONTRACT.md, including the weights (in percent) of both
+    the max Sharpe ratio portfolio and the minimum variance portfolio. Pure
+    function.
 
     Parameters
     ----------
@@ -235,6 +245,7 @@ def build_optimization_metadata(
         "min_var_portfolio": {
             "annualized_return": result.min_var_return,
             "risk": result.min_var_risk,
+            "weights": result.min_var_weights_pct,
         },
     }
 
