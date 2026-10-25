@@ -36,6 +36,14 @@ from fuzzy_system_research.optimization.portfolio import (
 )
 
 
+# Written directly above the top-level optimum_portfolio key in
+# optimization_metadata.yml. The key keeps its name for compatibility with
+# readers (see docs/INTERFACE_CONTRACT.md); the comment says what it holds.
+OPTIMUM_PORTFOLIO_COMMENT = (
+    "# optimum_portfolio is the maximum Sharpe ratio (tangency) portfolio."
+)
+
+
 @dataclass(frozen=True)
 class PortfolioAssets:
     """
@@ -260,10 +268,39 @@ def build_optimization_metadata(
     }
 
 
+def optimization_metadata_yaml(metadata: dict) -> str:
+    """
+    Render optimization_metadata.yml as text: block style, keys sorted, with
+    OPTIMUM_PORTFOLIO_COMMENT on the line directly above the top-level
+    optimum_portfolio key, because that key's name does not say which
+    portfolio it is. YAML parsers ignore comments, so the parsed contents
+    are exactly metadata. Pure function.
+
+    Parameters
+    ----------
+    metadata : dict
+        As returned by build_optimization_metadata().
+
+    Returns
+    -------
+    str
+        The YAML text.
+    """
+    lines = yaml.dump(metadata, default_flow_style=False).splitlines(keepends=True)
+    return "".join(
+        f"{OPTIMUM_PORTFOLIO_COMMENT}\n{line}"
+        if line.startswith("optimum_portfolio:")
+        else line
+        for line in lines
+    )
+
+
 def write_optimization_metadata(metadata: dict, path: str) -> None:
     """
-    Write optimization_metadata.yml (block style, keys sorted). Overwrites
-    the file.
+    Write optimization_metadata.yml as rendered by
+    optimization_metadata_yaml() (block style, keys sorted, with a comment
+    identifying optimum_portfolio as the max Sharpe ratio portfolio).
+    Overwrites the file.
 
     Parameters
     ----------
@@ -274,4 +311,4 @@ def write_optimization_metadata(metadata: dict, path: str) -> None:
         Local path of the .yml file to write. Its folder must exist.
     """
     with open(path, "w") as f:
-        yaml.dump(metadata, f, default_flow_style=False)
+        f.write(optimization_metadata_yaml(metadata))

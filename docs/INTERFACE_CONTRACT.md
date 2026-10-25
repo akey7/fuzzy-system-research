@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 29 |
+| **Contract version** | 30 |
 | **Last updated** | 2026-10-24 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -162,6 +162,15 @@ Things to notice in the example:
 - Date strings are quoted, so they load as strings.
 - `weights` keys are sorted alphabetically, but `tickers` is in the backend's own order. Neither order is significant.
 - Weights carry **floating-point noise**: a weight that is effectively zero can appear as `7.59701304408773e-15`, and a weight at the cap appears as `39.99999999999994` instead of `40.0`. Values can be written in scientific notation.
+
+Since v30, the file has one comment line directly above the `optimum_portfolio` key (the example above predates it), because the key's name does not say which portfolio it is:
+
+```yaml
+# optimum_portfolio is the maximum Sharpe ratio (tangency) portfolio.
+optimum_portfolio:
+```
+
+YAML parsers ignore comments, so the parsed contents are unchanged. The key keeps its name for compatibility.
 
 Since v28, `min_var_portfolio` also has a `weights` map, in the same form as `optimum_portfolio.weights` (the example above predates it). Illustrative values:
 
@@ -478,6 +487,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 30 | 2026-10-24 | Non-breaking; no change to keys, values, types, or units. `optimization_metadata.yml` now has a comment line, `# optimum_portfolio is the maximum Sharpe ratio (tangency) portfolio.`, directly above the `optimum_portfolio` key, because the key's name is ambiguous. YAML parsers ignore comments, so the parsed contents are unchanged; the key is not renamed. Frontend: no change required; replace its copy with this file. Where the UI labels this section, call it the maximum Sharpe ratio portfolio. |
 | 29 | 2026-10-24 | Backend safeguard; no change to files, keys, columns, types, units, or the meaning of any value. The backend now checks that the max Sharpe ratio and minimum variance optimizations converge; if either does not, the run fails before uploading, as a missing risk-free rate already does (v14). Before v29 an unconverged optimization's weights could have been uploaded without warning. Efficient-frontier points the optimizer cannot reach are still `NaN`, as before. Added the "Converged optimizations only" note to `optimization_metadata.yml`. Frontend: no change required; replace its copy with this file. |
 | 28 | 2026-10-24 | **Additive.** `optimization_metadata.yml` gains `min_var_portfolio.weights`: the minimum variance portfolio's weights in percent, one key per ticker, in the same form (and with the same floating-point noise) as `optimum_portfolio.weights`. The backend already computed these weights but did not upload them. No other key, file, value, unit, or upload order changes; the `.h5` file is unchanged. Added the field, a short example, the note that both weight maps follow the weight-noise rules, and suggested wording for showing both portfolios. Frontend: optionally show the minimum variance weights next to the max Sharpe ratio weights (applying the weight-noise rules to both); treat the key as optional, since dates before v28 lack it. |
 | 27 | 2026-10-19 | Documentation only; no change to files, keys, columns, types, units, values, or reader behavior. Corrected three stale passages left from before v21 and v24: "Which dates are available" said `optimization_metadata.yml` is uploaded "last of all three" (there are four files per date; it is still last); "Verification status" listed the upload order without `all_forecasts_metadata.yml`; and it said the forecast description matches the backend's `run()` defaults, a function that no longer exists, so it now says that check applied to the pre-v24 method and the current method is checked by code and unit tests only. Frontend: no change required; replace its copy with this file. |

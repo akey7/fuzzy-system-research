@@ -13,8 +13,10 @@ from fuzzy_system_research.data.prices import pivot_close_wide
 from fuzzy_system_research.optimization import workflow
 from fuzzy_system_research.optimization.portfolio import OptimizationError
 from fuzzy_system_research.optimization.workflow import (
+    OPTIMUM_PORTFOLIO_COMMENT,
     OptimizationResult,
     build_optimization_metadata,
+    optimization_metadata_yaml,
     run_portfolio_optimization,
     write_optimization_metadata,
     write_plot_data_h5,
@@ -178,6 +180,30 @@ def test_metadata_yaml_round_trip_keeps_dates_as_strings(result, tmp_path):
         assert all(isinstance(w, float) for w in weights.values())
     assert loaded["min_var_portfolio"]["weights"] == pytest.approx(
         result.min_var_weights_pct
+    )
+
+
+def test_comment_sits_directly_above_optimum_portfolio(result, tmp_path):
+    metadata = build_optimization_metadata(result, ["XBI", "QQQ", "GLD"], RF_DATA)
+    path = tmp_path / "optimization_metadata.yml"
+    write_optimization_metadata(metadata, str(path))
+    lines = path.read_text().splitlines()
+    i = lines.index("optimum_portfolio:")
+    assert lines[i - 1] == OPTIMUM_PORTFOLIO_COMMENT
+    assert "maximum Sharpe ratio" in OPTIMUM_PORTFOLIO_COMMENT
+    assert OPTIMUM_PORTFOLIO_COMMENT.startswith("# ")
+    assert sum(line == OPTIMUM_PORTFOLIO_COMMENT for line in lines) == 1
+
+
+def test_comment_does_not_change_the_parsed_metadata(result):
+    metadata = build_optimization_metadata(result, ["XBI", "QQQ", "GLD"], RF_DATA)
+    text = optimization_metadata_yaml(metadata)
+    assert yaml.safe_load(text) == yaml.safe_load(
+        yaml.dump(metadata, default_flow_style=False)
+    )
+    # Apart from the comment line, the text is exactly what yaml.dump writes.
+    assert text.replace(OPTIMUM_PORTFOLIO_COMMENT + "\n", "") == yaml.dump(
+        metadata, default_flow_style=False
     )
 
 
