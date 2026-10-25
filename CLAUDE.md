@@ -84,7 +84,7 @@ Human-facing documentation lives in `README.md` and `docs/`. The priority audien
 | `docs/METHODS_AND_RESULTS.md` | A short paper on the quantitative methods and results. **Placeholder for now:** leave its placeholder content alone until the human says the project is mature enough to write it. | Data science / quant finance |
 | `docs/SYSTEM_DESIGN.md` | Data flow from inputs to outputs: the "How the backend works" diagrams, project structure, data folders, scripts, library modules | Engineering |
 | `docs/INTERFACE_CONTRACT.md` | The backend ↔ frontend contract (see "Changing the frontend contract") | Engineering and Claude Code |
-| `docs/INSTALLATION_AND_EXECUTION.md` | Installing, configuring, and running the backend: dependencies, `.env`, command-line flags, "Model settings" | Engineering |
+| `docs/INSTALLATION_AND_EXECUTION.md` | Installing, configuring, running, and testing the backend: dependencies, `.env`, command-line flags, "Model settings", "Running the tests" | Engineering |
 
 Intended read orders, which links between documents should support:
 

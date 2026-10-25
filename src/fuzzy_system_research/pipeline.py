@@ -84,8 +84,7 @@ def required_sessions(ts_config: TimeSeriesConfig) -> int:
 def price_download_sessions(ts_config: TimeSeriesConfig) -> int:
     """
     Trading sessions requested from the API: required_sessions() plus
-    PRICE_DOWNLOAD_MARGIN_SESSIONS. Pure
-    function.
+    PRICE_DOWNLOAD_MARGIN_SESSIONS. Pure function.
     """
     return required_sessions(ts_config) + PRICE_DOWNLOAD_MARGIN_SESSIONS
 

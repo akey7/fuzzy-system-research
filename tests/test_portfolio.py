@@ -1,7 +1,8 @@
 """
 Unit tests for fuzzy_system_research.optimization.portfolio: random weights,
 weight bounds, the optimizers' constraints (including a binding weight cap),
-infeasible efficient-frontier targets, and the risk-free rate.
+convergence checks, infeasible efficient-frontier targets, and the risk-free
+rate.
 
 In-memory only. get_risk_free_rate() is tested inside pytest's tmp_path with
 the FRED download replaced by a fake, so the real input/ folder and the
@@ -15,8 +16,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from scipy.optimize import OptimizeResult
+
 from fuzzy_system_research.optimization import portfolio
 from fuzzy_system_research.optimization.portfolio import (
+    OptimizationError,
     calc_efficient_frontier,
     calc_min_variance_portfolio,
     calc_weight_bounds,
@@ -108,6 +112,48 @@ def test_max_sharpe_is_optimal_among_random_feasible_portfolios():
             continue  # Only compare against portfolios the optimizer may choose.
         sharpe = (w @ mean_returns - rf) / np.sqrt(w @ cov @ w)
         assert sharpe <= best_sharpe + 1e-5  # SLSQP convergence tolerance.
+
+
+# Convergence: an unconverged optimization must not return weights
+
+
+@pytest.fixture
+def failing_minimize(monkeypatch):
+    """Replace SciPy's minimize with one that never converges."""
+
+    def fake_minimize(fun, x0, **kwargs):
+        x = np.asarray(x0, dtype=float)
+        return OptimizeResult(
+            x=x, fun=fun(x), success=False, status=9, message="Iteration limit reached"
+        )
+
+    monkeypatch.setattr(portfolio, "minimize", fake_minimize)
+
+
+def test_min_variance_raises_if_it_does_not_converge(failing_minimize):
+    mean_returns, cov = dominant_asset_inputs()
+    with pytest.raises(OptimizationError, match="minimum variance.*Iteration limit"):
+        calc_min_variance_portfolio(assets(N_CAPPED), cov, mean_returns)
+
+
+def test_max_sharpe_raises_if_it_does_not_converge(failing_minimize):
+    mean_returns, cov = dominant_asset_inputs()
+    with pytest.raises(OptimizationError, match="max Sharpe ratio.*status 9"):
+        optimize_sharpe_ratio(assets(N_CAPPED), 0.01, mean_returns, cov)
+
+
+def test_unreached_frontier_targets_stay_nan_instead_of_raising(failing_minimize):
+    # The efficient frontier records an unreachable target as NaN (see the
+    # contract); only the two portfolio optimizations must converge.
+    mean_returns, cov = dominant_asset_inputs()
+    risks, _ = calc_efficient_frontier(
+        assets(N_CAPPED), 0.02, 0.3, mean_returns, cov, num_portfolios=5
+    )
+    assert np.isnan(risks).all()
+
+
+def test_optimization_error_is_a_runtime_error():
+    assert issubclass(OptimizationError, RuntimeError)
 
 
 # calc_efficient_frontier: infeasible targets become NaN
