@@ -85,6 +85,7 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     print(f"Using settings from {args.config}: {config.time_series_models}")
+    print(f"Using settings from {args.config}: {config.portfolio_optimization}")
     load_dotenv()
     result = run_pipeline(
         upload=not args.no_upload,
@@ -92,6 +93,7 @@ def main() -> None:
         refresh_data=args.refresh_data,
         arima_workers=args.workers,
         ts_config=config.time_series_models,
+        po_config=config.portfolio_optimization,
     )
     print(f"Done: {result.as_of} (ARIMA {'trained' if result.trained_arima else 'cached'})")
     for key in result.uploaded:

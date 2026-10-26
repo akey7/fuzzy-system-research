@@ -3,8 +3,10 @@ One backend run: download (or load cached) prices, ARIMA forecasts (or load
 cached), forecast metrics, portfolio optimization, then upload all four
 frontend files.
 
-The time series settings (training window, scored days) come from the
-configuration file, passed in as a TimeSeriesConfig (see config.py).
+The time series settings (training window, scored days) and the portfolio
+optimization settings (weight cap, frontier points, random portfolios, seed)
+come from the configuration file, passed in as a TimeSeriesConfig and a
+PortfolioOptimizationConfig (see config.py).
 
 Order of operations:
 1. Price data: one download of price_download_sessions() trading days,
@@ -14,7 +16,9 @@ Order of operations:
    cached as output/time_series/<as-of date>/all_forecasts.csv. Metrics on
    those forecasts are written next to it as all_forecasts_metadata.yml.
 3. Optimization: on the last OPTIMIZATION_LOOKBACK_SESSIONS sessions, written
-   to output/portfolio_optimization/<as-of date>/.
+   to output/portfolio_optimization/<as-of date>/. Its invariants are checked
+   before the files are written, and the written .h5 and .yml files are read
+   back and checked against each other before any upload.
 4. Upload, only after every step above succeeded, to the one frontend Space
    under <folder>/<as-of date>/: all_forecasts.csv, all_forecasts_metadata.yml,
    portfolio_optimization_plot_data.h5, then optimization_metadata.yml last,
@@ -27,9 +31,8 @@ orchestration can be tested without them.
 import os
 from dataclasses import dataclass
 from typing import Callable, Protocol
-import numpy as np
 import pandas as pd
-from fuzzy_system_research.config import TimeSeriesConfig
+from fuzzy_system_research.config import PortfolioOptimizationConfig, TimeSeriesConfig
 from fuzzy_system_research.data.date_manager import DateManager
 from fuzzy_system_research.data.prices import last_n_sessions, pivot_close_wide
 from fuzzy_system_research.data.ticker_download_manager import TickerDownloadManager
@@ -46,6 +49,7 @@ from fuzzy_system_research.optimization.portfolio import get_risk_free_rate
 from fuzzy_system_research.optimization.workflow import (
     build_optimization_metadata,
     run_portfolio_optimization,
+    verify_optimization_files,
     write_optimization_metadata,
     write_plot_data_h5,
 )
@@ -149,13 +153,13 @@ def run_pipeline(
     arima_workers: int | None = None,
     *,
     ts_config: TimeSeriesConfig,
+    po_config: PortfolioOptimizationConfig,
     tdm: TickerDownloadManager | None = None,
     trainer: ForecastTrainer | None = None,
     uploader: Uploader | None = None,
     risk_free_rate_getter: Callable[[DateManager], dict] = get_risk_free_rate,
     dm: DateManager | None = None,
     output_root: str = OUTPUT_ROOT,
-    rng: np.random.Generator | None = None,
 ) -> PipelineResult:
     """
     Run the whole backend: prices, ARIMA forecasts, portfolio optimization,
@@ -196,15 +200,17 @@ def run_pipeline(
         has no default, so the configuration file is the one source of
         truth.
 
+    po_config : PortfolioOptimizationConfig
+        Portfolio optimization settings from the configuration file: the
+        weight cap, the number of efficient-frontier points and random
+        portfolios, and the random seed. Required, like ts_config.
+
     tdm, trainer, uploader, risk_free_rate_getter, dm : optional
         Dependencies, defaulting to the real implementations. Tests pass
         doubles here to avoid network, S3, and model training.
 
     output_root : str, optional
         Root of the local output folder. Defaults to "output".
-
-    rng : np.random.Generator, optional
-        Random number generator for the Monte Carlo simulation.
 
     Returns
     -------
@@ -291,7 +297,7 @@ def run_pipeline(
     result = run_portfolio_optimization(
         last_n_sessions(wide_df, OPTIMIZATION_LOOKBACK_SESSIONS),
         risk_free_rate_data["daily_risk_free_rate"],
-        rng=rng,
+        po_config,
     )
     plot_data_path = ensure_parent_dir(
         local_output_path(
@@ -310,6 +316,8 @@ def run_pipeline(
         metadata_path,
     )
     print(f"Saved {metadata_path}")
+    # The two optimization files must agree before either is uploaded.
+    verify_optimization_files(plot_data_path, metadata_path)
 
     # 4. Uploads, optimization metadata last (it marks the date as complete)
     uploaded: list[str] = []

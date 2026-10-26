@@ -1,5 +1,5 @@
 """
-Tests for the annualization helpers in fuzzy_system_research.optimization.portfolio.
+Tests for the annualization helpers in fuzzy_system_research.optimization.problem.
 
 These are pure functions, so the tests use in-memory values only: no network,
 no S3, and no reads or writes to input/ or output/.
@@ -8,11 +8,10 @@ no S3, and no reads or writes to input/ or output/.
 import numpy as np
 import pytest
 
-from fuzzy_system_research.optimization.portfolio import (
+from fuzzy_system_research.optimization.problem import (
     TRADING_DAYS_PER_YEAR,
     annualize_return,
     annualize_risk,
-    annualize_sharpe_ratio,
 )
 
 
@@ -96,27 +95,19 @@ def test_annualize_risk_variance_scales_linearly():
     assert annual_sigma**2 == pytest.approx(daily_sigma**2 * 252)
 
 
-# annualize_sharpe_ratio
+# Sharpe ratio under arithmetic annualization (used by
+# PortfolioProblem.portfolio_stats(); see tests/test_problem.py)
 
 
-def test_annualize_sharpe_ratio_returns_float():
-    result = annualize_sharpe_ratio(0.1)
-    assert isinstance(result, float)
-    assert result == pytest.approx(0.1 * np.sqrt(252))
-
-
-def test_annualize_sharpe_ratio_custom_periods():
-    assert annualize_sharpe_ratio(0.5, periods_per_year=4) == pytest.approx(1.0)
-
-
-def test_annualize_sharpe_ratio_matches_annualized_inputs():
-    # Contract identity: annual Sharpe == (annual return - annual rf) / annual risk.
+def test_annual_sharpe_from_annualized_inputs_is_daily_sharpe_times_sqrt_periods():
+    # Contract identity: annual Sharpe == (annual return - annual rf) / annual
+    # risk == daily Sharpe × √252.
     daily_mean, daily_rf, daily_sigma = 0.12, 4.05 / 252, 0.9
     daily_sharpe = (daily_mean - daily_rf) / daily_sigma
-    expected = (
+    annual_sharpe = (
         float(annualize_return(daily_mean)) - float(annualize_return(daily_rf))
     ) / float(annualize_risk(daily_sigma))
-    assert annualize_sharpe_ratio(daily_sharpe) == pytest.approx(expected)
+    assert annual_sharpe == pytest.approx(daily_sharpe * np.sqrt(252))
 
 
 def test_annualized_daily_rf_recovers_quoted_annual_rate():
@@ -124,10 +115,10 @@ def test_annualized_daily_rf_recovers_quoted_annual_rate():
     assert float(annualize_return(4.05 / 252)) == pytest.approx(4.05)
 
 
-# Combined property relied on by the .h5 tangency line
+# Combined property relied on by the .h5 capital allocation line
 
 
-def test_annualized_tangency_line_is_straight_with_annual_intercept_and_slope():
+def test_annualized_line_is_straight_with_annual_intercept_and_slope():
     daily_rf, daily_sharpe = 4.05 / 252, 0.15
     daily_xs = np.linspace(0, 1.5, 100)
     daily_ys = daily_rf + daily_sharpe * daily_xs
@@ -135,8 +126,8 @@ def test_annualized_tangency_line_is_straight_with_annual_intercept_and_slope():
     annual_xs = annualize_risk(daily_xs)
     annual_ys = annualize_return(daily_ys)
 
-    expected_ys = float(annualize_return(daily_rf)) + annualize_sharpe_ratio(
-        daily_sharpe
+    expected_ys = float(annualize_return(daily_rf)) + daily_sharpe * np.sqrt(
+        252
     ) * annual_xs
     np.testing.assert_allclose(annual_ys, expected_ys)
     assert annual_ys[0] == pytest.approx(4.05)

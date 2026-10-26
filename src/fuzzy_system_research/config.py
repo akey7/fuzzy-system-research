@@ -14,10 +14,17 @@ File layout:
     time_series_models:
       training_window_length: <int>    # closes per ARIMA training window
       evaluation_window_length: <int>  # backtest days scored
+    portfolio_optimization:
+      weight_cap_multiple: <number>     # cap = multiple / number of tickers
+      efficient_frontier_points: <int>  # target returns on the frontier
+      simulated_portfolios: <int>       # random feasible portfolios
+      random_seed: <int>                # seed for the random portfolios
+      near_frontier_tolerance: <number> # pp of return counted as "near" the frontier
 
 The current values are in the file itself.
 """
 
+import math
 import os
 from dataclasses import dataclass
 import yaml
@@ -33,16 +40,22 @@ class ConfigError(ValueError):
     """The configuration file is missing, unreadable, or invalid."""
 
 
-def _require_int(name: str, value: object, minimum: int) -> None:
+def _require_int(
+    name: str, value: object, minimum: int, section: str = "time_series_models"
+) -> None:
     # bool is a subclass of int, so `True` must be rejected explicitly.
     if type(value) is not int:
-        raise ConfigError(
-            f"time_series_models.{name} must be an integer, got {value!r}."
-        )
+        raise ConfigError(f"{section}.{name} must be an integer, got {value!r}.")
     if value < minimum:
-        raise ConfigError(
-            f"time_series_models.{name} must be at least {minimum}, got {value}."
-        )
+        raise ConfigError(f"{section}.{name} must be at least {minimum}, got {value}.")
+
+
+def _require_number_above(name: str, value: object, lower: float, section: str) -> None:
+    # An int or a float (not a bool), finite and strictly greater than lower.
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise ConfigError(f"{section}.{name} must be a number, got {value!r}.")
+    if not value > lower:
+        raise ConfigError(f"{section}.{name} must be greater than {lower}, got {value}.")
 
 
 @dataclass(frozen=True)
@@ -90,14 +103,72 @@ class TimeSeriesConfig:
         return self.training_window_length + self.evaluation_window_length
 
 
+PORTFOLIO_SECTION = "portfolio_optimization"
+
+
+@dataclass(frozen=True)
+class PortfolioOptimizationConfig:
+    """
+    Settings for the portfolio optimization and its plot data. Validated on
+    construction.
+
+    Attributes
+    ----------
+    weight_cap_multiple : int or float
+        Each weight is at most weight_cap_multiple / (number of tickers),
+        for both optimized portfolios, the efficient frontier, and the
+        random portfolios. Greater than 1: at 1 the only feasible portfolio
+        is equal weights.
+
+    efficient_frontier_points : int
+        Target returns on the efficient frontier. At least 2.
+
+    simulated_portfolios : int
+        Random feasible portfolios drawn for the plot. At least 1.
+
+    random_seed : int
+        Seed of the random number generator for those portfolios. At least 0.
+
+    near_frontier_tolerance : int or float
+        A random portfolio counts as near the efficient frontier when its
+        annualized return is within this many percentage points of the
+        frontier's return at the same volatility. Reported in
+        optimization_metadata.yml. Greater than 0.
+    """
+
+    weight_cap_multiple: int | float
+    efficient_frontier_points: int
+    simulated_portfolios: int
+    random_seed: int
+    near_frontier_tolerance: int | float
+
+    def __post_init__(self) -> None:
+        _require_number_above(
+            "weight_cap_multiple", self.weight_cap_multiple, 1, PORTFOLIO_SECTION
+        )
+        _require_int(
+            "efficient_frontier_points",
+            self.efficient_frontier_points,
+            2,
+            PORTFOLIO_SECTION,
+        )
+        _require_int(
+            "simulated_portfolios", self.simulated_portfolios, 1, PORTFOLIO_SECTION
+        )
+        _require_int("random_seed", self.random_seed, 0, PORTFOLIO_SECTION)
+        _require_number_above(
+            "near_frontier_tolerance", self.near_frontier_tolerance, 0, PORTFOLIO_SECTION
+        )
+
+
 @dataclass(frozen=True)
 class ModelingConfig:
     """
-    The whole configuration file. Has one section today; later sections
-    (e.g. for the optimization) become further fields.
+    The whole configuration file: one field per section.
     """
 
     time_series_models: TimeSeriesConfig
+    portfolio_optimization: PortfolioOptimizationConfig
 
 
 def _check_keys(section: str, mapping: object, expected: set[str]) -> dict:
@@ -134,17 +205,37 @@ def parse_config(raw: object) -> ModelingConfig:
         If a section or key is missing or unknown, or a value has the wrong
         type or is out of range.
     """
-    top = _check_keys("The configuration file", raw, {"time_series_models"})
+    top = _check_keys(
+        "The configuration file", raw, {"time_series_models", PORTFOLIO_SECTION}
+    )
     ts = _check_keys(
         "time_series_models",
         top["time_series_models"],
         {"training_window_length", "evaluation_window_length"},
     )
+    po = _check_keys(
+        PORTFOLIO_SECTION,
+        top[PORTFOLIO_SECTION],
+        {
+            "weight_cap_multiple",
+            "efficient_frontier_points",
+            "simulated_portfolios",
+            "random_seed",
+            "near_frontier_tolerance",
+        },
+    )
     return ModelingConfig(
         time_series_models=TimeSeriesConfig(
             training_window_length=ts["training_window_length"],
             evaluation_window_length=ts["evaluation_window_length"],
-        )
+        ),
+        portfolio_optimization=PortfolioOptimizationConfig(
+            weight_cap_multiple=po["weight_cap_multiple"],
+            efficient_frontier_points=po["efficient_frontier_points"],
+            simulated_portfolios=po["simulated_portfolios"],
+            random_seed=po["random_seed"],
+            near_frontier_tolerance=po["near_frontier_tolerance"],
+        ),
     )
 
 
