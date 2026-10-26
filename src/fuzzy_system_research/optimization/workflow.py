@@ -16,7 +16,7 @@ for everything:
   portfolio_stats(). The capital allocation line is built from the max
   Sharpe ratio point.
 - optimization_metadata.yml also records why the random cloud sits where
-  it does: each asset's own return and risk, the constraints, the maximum
+  it does: each asset's own return and volatility, the constraints, the maximum
   return portfolio (the top of the frontier, checked against its closed
   form), and a summary of the random portfolios (RandomPortfolioSummary).
 
@@ -27,7 +27,7 @@ Conventions:
   weight_cap_multiple / (number of assets), set in
   config/modeling_and_optimization.yml.
 - Everything stored in OptimizationResult is annualized arithmetically
-  (return × 252, risk × √252), which leaves the optimal weights unchanged and
+  (return × 252, volatility × √252), which leaves the optimal weights unchanged and
   keeps the capital allocation line straight.
 - Mean returns and covariance are estimated from about one year of daily
   data, so the results are noisy.
@@ -83,9 +83,9 @@ WEIGHT_TOLERANCE = 1e-5
 # No feasible portfolio may beat the max Sharpe ratio by more than this,
 # times (1 + |max Sharpe ratio|).
 SHARPE_TOLERANCE = 1e-4
-# Relative tolerance for comparing risks: no random portfolio may have less
-# risk than the efficient frontier allows by more than this fraction, and the
-# minimum variance risk must equal the frontier's smallest risk to within it.
+# Relative tolerance for comparing volatilities: no random portfolio may have less
+# volatility than the efficient frontier allows by more than this fraction, and the
+# minimum variance volatility must equal the frontier's smallest volatility to within it.
 RISK_RELATIVE_TOLERANCE = 1e-3
 # A frontier point's annualized return must equal its target to within this
 # many percentage points per year.
@@ -137,7 +137,7 @@ class RandomPortfolioSummary:
     near_frontier_share : float
         Fraction (0 to 1) of random portfolios whose return is within
         near_frontier_tolerance of the efficient frontier's return at the
-        same risk (see frontier_return_at_risk(), which slightly
+        same volatility (see frontier_return_at_risk(), which slightly
         overstates this share).
     """
 
@@ -155,7 +155,7 @@ class RandomPortfolioSummary:
 @dataclass(frozen=True, eq=False)
 class OptimizationResult:
     """
-    Results of one portfolio optimization run. All returns and risks are
+    Results of one portfolio optimization run. All returns and volatilities are
     annualized arithmetically and in percent per year; the Sharpe ratio is
     annualized and dimensionless. Weights are fractions (summing to 1) in
     the order of tickers; the *_weights_pct properties give them in percent,
@@ -231,7 +231,7 @@ def capital_allocation_line(
 
     The line is parameterized as t from 0 to 1, so its first point is
     exactly (0, annual_risk_free_rate), its last point is exactly
-    (max_sharpe_risk, max_sharpe_return), and the risks are evenly spaced.
+    (max_sharpe_risk, max_sharpe_return), and the volatilities are evenly spaced.
     Its slope is the annualized max Sharpe ratio.
 
     Parameters
@@ -240,7 +240,7 @@ def capital_allocation_line(
         Annualized risk-free rate, percent per year.
 
     max_sharpe_risk, max_sharpe_return : float
-        Annualized risk and return of the max Sharpe ratio portfolio,
+        Annualized volatility and return of the max Sharpe ratio portfolio,
         percent per year.
 
     n_points : int, optional
@@ -249,7 +249,7 @@ def capital_allocation_line(
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
-        Risks (xs) and returns (ys), each of shape (n_points,).
+        Volatilities (xs) and returns (ys), each of shape (n_points,).
     """
     t = np.linspace(0.0, 1.0, n_points)
     return t * max_sharpe_risk, (1.0 - t) * annual_risk_free_rate + t * max_sharpe_return
@@ -259,10 +259,10 @@ def frontier_return_at_risk(
     frontier_risks: np.ndarray, frontier_returns: np.ndarray, risks: np.ndarray
 ) -> np.ndarray:
     """
-    The efficient frontier's return at each given risk: linear
-    interpolation between the reached frontier points (sorted by risk, with
+    The efficient frontier's return at each given volatility: linear
+    interpolation between the reached frontier points (sorted by volatility, with
     returns made non-decreasing), the minimum variance return below the
-    least risky point, and the highest frontier return above the riskiest
+    least volatile point, and the highest frontier return above the most volatile
     one (no feasible portfolio earns more). Pure function.
 
     The true frontier is concave, so straight lines between its points lie
@@ -272,16 +272,16 @@ def frontier_return_at_risk(
     Parameters
     ----------
     frontier_risks, frontier_returns : np.ndarray
-        Annualized risks (NaN where unreached) and target returns of the
+        Annualized volatilities (NaN where unreached) and target returns of the
         frontier points.
 
     risks : np.ndarray
-        Annualized risks to evaluate at.
+        Annualized volatilities to evaluate at.
 
     Returns
     -------
     np.ndarray
-        Annualized frontier returns, same shape as risks.
+        Annualized frontier returns, same shape as risks (volatilities).
     """
     reached = ~np.isnan(frontier_risks)
     order = np.argsort(frontier_risks[reached], kind="stable")
@@ -462,7 +462,7 @@ def run_portfolio_optimization(
     print(result.min_var_weights_pct)
     print("Best weights %:")
     print(result.max_sharpe_weights_pct)
-    print("annualized_optimum_return, annualized_optimum_risk, annualized_sharpe_ratio")
+    print("annualized_optimum_return, annualized_optimum_volatility, annualized_sharpe_ratio")
     print(result.max_sharpe_return, result.max_sharpe_risk, result.sharpe_ratio)
     check_optimization_invariants(problem, result)
     return result
@@ -488,15 +488,15 @@ def check_optimization_invariants(
     2. No random or frontier portfolio has a higher Sharpe ratio than the
        max Sharpe ratio portfolio.
     3. No random portfolio lies left of the efficient frontier: none has
-       less risk than a frontier point whose target return is at most its
-       own return, and none has less risk than the minimum variance
+       less volatility than a frontier point whose target return is at most its
+       own return, and none has less volatility than the minimum variance
        portfolio.
-    4. The minimum variance risk equals the smallest reached frontier risk.
+    4. The minimum variance volatility equals the smallest reached frontier volatility.
     5. Each reached frontier point's return (from portfolio_stats()) equals
        its target return.
     6. The capital allocation line starts at (0, annual risk-free rate),
-       ends exactly at the max Sharpe ratio point with no risk beyond it,
-       has non-decreasing risks, and is straight with slope sharpe_ratio.
+       ends exactly at the max Sharpe ratio point with no volatility beyond it,
+       has non-decreasing volatilities, and is straight with slope sharpe_ratio.
     7. The maximum return portfolio (the top of the efficient frontier)
        earns the closed-form maximum feasible return
        (PortfolioProblem.max_return_weights_closed_form()), and the
@@ -553,14 +553,14 @@ def check_optimization_invariants(
     if left.any():
         _fail(f"{int(left.any(axis=1).sum())} random portfolio(s) lie left of the frontier.")
     if not result.simulated_risks.min() >= result.min_var_risk * (1 - RISK_RELATIVE_TOLERANCE):
-        _fail("a random portfolio has less risk than the minimum variance portfolio.")
+        _fail("a random portfolio has less volatility than the minimum variance portfolio.")
 
-    # 4. Minimum variance risk is the frontier's smallest risk
+    # 4. Minimum variance volatility is the frontier's smallest volatility
     smallest = frontier_risks.min()
     if not abs(smallest - result.min_var_risk) <= RISK_RELATIVE_TOLERANCE * result.min_var_risk:
         _fail(
-            f"the minimum variance risk {result.min_var_risk:.6g} differs from the "
-            f"smallest efficient frontier risk {smallest:.6g}."
+            f"the minimum variance volatility {result.min_var_risk:.6g} differs from the "
+            f"smallest efficient frontier volatility {smallest:.6g}."
         )
 
     # 5. Frontier returns equal their targets
@@ -604,7 +604,7 @@ def check_optimization_invariants(
 def write_plot_data_h5(result: OptimizationResult, path: str) -> None:
     """
     Write portfolio_optimization_plot_data.h5 as specified in
-    docs/INTERFACE_CONTRACT.md: five groups of xs (risk) / ys (return) datasets
+    docs/INTERFACE_CONTRACT.md: five groups of xs (volatility) / ys (return) datasets
     plus root attributes describing the units. The tangency_line group holds
     the capital allocation line. Writes the result's values unchanged;
     computes nothing. Overwrites the file.
@@ -645,7 +645,7 @@ def build_optimization_metadata(
     Build the contents of optimization_metadata.yml as specified in
     docs/INTERFACE_CONTRACT.md, including the weights (in percent) of the
     max Sharpe ratio, minimum variance, and maximum return portfolios, each
-    asset's own annualized return and risk, the constraints, and the
+    asset's own annualized return and volatility, the constraints, and the
     random-portfolio summary. Pure function.
 
     Parameters
@@ -760,9 +760,9 @@ def verify_optimization_files(plot_data_path: str, metadata_path: str) -> None:
     Read back the two written optimization files and check that they agree,
     raising InvariantError (before anything is uploaded) if they do not:
     the max Sharpe ratio and minimum variance points in the .h5 file equal
-    the risk and annualized_return in the .yml file; the capital allocation
+    the risk (volatility) and annualized_return keys in the .yml file; the capital allocation
     line starts at (0, risk_free_rate) and ends exactly at the .h5 max
-    Sharpe ratio point with no risk beyond it; the efficient frontier ends
+    Sharpe ratio point with no volatility beyond it; the efficient frontier ends
     at max_return_portfolio's return; and the number of random portfolios
     equals random_portfolios.count.
 

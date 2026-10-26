@@ -4,7 +4,7 @@ Portfolio optimizers and the risk-free rate.
 Every optimizer takes a problem.PortfolioProblem and uses its bounds(),
 constraints(), daily_mean_return(), and daily_variance(), so the max Sharpe
 ratio, minimum variance, maximum return, and efficient-frontier solutions
-all share one constraint set and one formula for return and risk. The
+all share one constraint set and one formula for return and volatility. The
 optimizers return weights only; the statistics that are uploaded come from
 PortfolioProblem.portfolio_stats().
 

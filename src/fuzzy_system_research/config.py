@@ -132,7 +132,7 @@ class PortfolioOptimizationConfig:
     near_frontier_tolerance : int or float
         A random portfolio counts as near the efficient frontier when its
         annualized return is within this many percentage points of the
-        frontier's return at the same risk. Reported in
+        frontier's return at the same volatility. Reported in
         optimization_metadata.yml. Greater than 0.
     """
 

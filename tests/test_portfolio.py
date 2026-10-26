@@ -196,7 +196,7 @@ def test_efficient_frontier_marks_unreachable_targets_as_nan():
     feasible = risks[targets < 0.3 - 0.02]
     assert np.isfinite(feasible).all()
     assert feasible[0] == pytest.approx(problem.portfolio_stats(min_var).risk, rel=1e-3)
-    # Upper (efficient) branch: risk does not decrease as the target rises.
+    # Upper (efficient) branch: volatility does not decrease as the target rises.
     assert (np.diff(feasible) >= -1e-6).all()
 
 

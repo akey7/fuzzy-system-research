@@ -214,9 +214,9 @@ def test_no_simulated_portfolio_beats_the_max_sharpe_ratio(case):
 
 
 def test_no_simulated_portfolio_lies_left_of_the_frontier(case):
-    # Each frontier point is the least risky portfolio with that target
+    # Each frontier point is the least volatile portfolio with that target
     # return, and the frontier is the upper (rising) branch, so no portfolio
-    # with at least that return may have less risk. Tolerance allows for SLSQP
+    # with at least that return may have less volatility. Tolerance allows for SLSQP
     # convergence.
     _, _, res = case
     finite = ~np.isnan(res.frontier_risks)
@@ -316,7 +316,7 @@ def test_invariants_reject_a_point_riskier_than_min_var_from_below(checked):
     problem, res = checked
     returns, risks = res.simulated_returns.copy(), res.simulated_risks.copy()
     returns[0], risks[0] = -1e6, res.min_var_risk * 0.5
-    with pytest.raises(InvariantError, match="less risk than the minimum variance"):
+    with pytest.raises(InvariantError, match="less volatility than the minimum variance"):
         check_optimization_invariants(
             problem, dataclasses.replace(res, simulated_returns=returns, simulated_risks=risks)
         )
@@ -324,7 +324,7 @@ def test_invariants_reject_a_point_riskier_than_min_var_from_below(checked):
 
 def test_invariants_reject_a_min_var_risk_off_the_frontier(checked):
     problem, res = checked
-    with pytest.raises(InvariantError, match="minimum variance risk"):
+    with pytest.raises(InvariantError, match="minimum variance volatility"):
         check_optimization_invariants(
             problem, dataclasses.replace(res, min_var_risk=res.min_var_risk * 0.9)
         )

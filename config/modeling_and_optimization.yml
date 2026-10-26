@@ -38,6 +38,6 @@ portfolio_optimization:
   random_seed: 20261025
   # A random portfolio counts as near the efficient frontier when its annualized
   # return is within this many percentage points of the frontier's return at the
-  # same risk. Only affects the random_portfolios summary in
+  # same volatility. Only affects the random_portfolios summary in
   # optimization_metadata.yml. A number greater than 0.
   near_frontier_tolerance: 1.0

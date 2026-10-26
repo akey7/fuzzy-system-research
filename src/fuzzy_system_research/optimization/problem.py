@@ -1,7 +1,7 @@
 """
 The portfolio optimization problem, defined once: the assets, the daily
 return estimates, the risk-free rate, the constraint set, and how a
-portfolio's return, risk, and Sharpe ratio are computed and annualized.
+portfolio's return, volatility, and Sharpe ratio are computed and annualized.
 
 Every optimization and every reported point uses this module, so the
 optimizer, the efficient frontier, the random portfolios, and every
@@ -15,7 +15,7 @@ optimization_metadata.yml share one definition and cannot drift apart:
   implementations of w·μ and wᵀΣw. The optimizers' objectives use them, and
   so does portfolio_stats().
 - PortfolioProblem.portfolio_stats() is the only place that turns weights
-  into the annualized return, risk, and Sharpe ratio that are uploaded.
+  into the annualized return, volatility, and Sharpe ratio that are uploaded.
 - PortfolioProblem.sample_feasible_weights() draws random portfolios from
   the same constraint set.
 
@@ -26,9 +26,9 @@ Conventions:
   pipeline), so they are noisy.
 - The risk-free rate is daily, in percent (the annual 3-month T-bill rate /
   TRADING_DAYS_PER_YEAR).
-- Annualization is arithmetic: return × 252 and risk × √252, so the
+- Annualization is arithmetic: return × 252 and volatility × √252, so the
   annualized Sharpe ratio, (annual return − annual risk-free rate) / annual
-  risk, equals the daily Sharpe ratio × √252.
+  volatility, equals the daily Sharpe ratio × √252.
 - Constraints: long-only (each weight ≥ 0), fully invested (weights sum to
   1), and each weight at most weight_cap_multiple / (number of assets). The
   multiple is a setting in config/modeling_and_optimization.yml.
@@ -56,7 +56,7 @@ def annualize_return(
     Arithmetically annualize mean daily simple returns: daily × periods_per_year.
 
     Arithmetic (not compounded) annualization is used so that linear
-    relationships between risk and return are preserved, e.g. the capital
+    relationships between volatility and return are preserved, e.g. the capital
     allocation line stays a straight line and the Sharpe ratio scales by
     sqrt(periods_per_year). Units are preserved, so percent per day becomes
     percent per year. NaN values pass through unchanged.
@@ -83,7 +83,7 @@ def annualize_risk(
     periods_per_year: int = TRADING_DAYS_PER_YEAR,
 ) -> np.ndarray | np.float64:
     """
-    Annualize the standard deviation of daily returns: daily σ * sqrt(periods_per_year).
+    Annualize volatility (the standard deviation of daily returns): daily σ * sqrt(periods_per_year).
 
     Assumes daily returns are serially uncorrelated. Units are preserved, so
     percent per day becomes percent per year. NaN values pass through
@@ -92,7 +92,7 @@ def annualize_risk(
     Parameters
     ----------
     daily_risk : float or array-like of float
-        Standard deviation(s) of daily returns.
+        Volatility: standard deviation(s) of daily returns.
 
     periods_per_year : int, optional
         Trading days per year. Defaults to 252.
@@ -125,7 +125,8 @@ class PortfolioStats:
         Expected return, annualized arithmetically, in percent per year.
 
     risk : float or np.ndarray
-        Standard deviation of returns, annualized, in percent per year.
+        Volatility (standard deviation of returns), annualized, in percent per
+        year. Named risk for compatibility with the uploaded keys.
 
     sharpe_ratio : float or np.ndarray
         Annualized Sharpe ratio (dimensionless): (annualized_return − annual
@@ -279,7 +280,7 @@ class PortfolioProblem:
     def single_asset_weights(self) -> np.ndarray:
         """
         One row per asset holding only that asset, shape (n, n). Pass to
-        portfolio_stats() for each asset's own annualized return and risk.
+        portfolio_stats() for each asset's own annualized return and volatility.
         These portfolios ignore the weight cap, so they are generally not
         feasible; they describe the assets, not candidate portfolios.
         """
@@ -362,7 +363,7 @@ class PortfolioProblem:
 
     def portfolio_stats(self, weights: np.ndarray) -> PortfolioStats:
         """
-        Annualized return, risk, and Sharpe ratio of one or several
+        Annualized return, volatility, and Sharpe ratio of one or several
         portfolios. Every portfolio statistic that is uploaded is computed
         here.
 
