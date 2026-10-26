@@ -131,6 +131,10 @@ def test_max_return_portfolio_matches_closed_form(cap_multiple):
     assert problem.daily_mean_return(weights) == pytest.approx(
         greedy_max_return(problem), abs=1e-6
     )
+    # The library's closed form, used by the run-time check, agrees too.
+    assert problem.daily_mean_return(
+        problem.max_return_weights_closed_form()
+    ) == pytest.approx(greedy_max_return(problem), abs=1e-12)
 
 
 # Convergence: an unconverged optimization must not return weights

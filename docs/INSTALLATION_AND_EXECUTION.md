@@ -55,6 +55,7 @@ portfolio_optimization:
   efficient_frontier_points: ...  # target returns on the efficient frontier
   simulated_portfolios: ...       # random feasible portfolios in the plot data
   random_seed: ...                # seed for those random portfolios
+  near_frontier_tolerance: ...    # pp of return counted as near the frontier (metadata only)
 ```
 
 - `training_window_length` counts **closing prices**; each window has one fewer daily log return than closes.

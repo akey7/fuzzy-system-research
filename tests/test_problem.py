@@ -205,3 +205,41 @@ def test_sampler_fails_loudly_when_almost_nothing_is_feasible():
 def test_sampler_rejects_a_non_positive_count():
     with pytest.raises(ValueError):
         problem().sample_feasible_weights(0, np.random.default_rng(0))
+
+
+# max_return_weights_closed_form and single_asset_weights
+
+
+def test_closed_form_max_return_fills_the_best_assets_up_to_the_cap():
+    # Cap 0.4 with 5 assets (multiple 2): 40 % best, 40 % second, 20 % third.
+    p = PortfolioProblem(
+        tickers=("A", "B", "C", "D", "E"),
+        daily_mean_returns=np.array([0.05, 0.12, 0.08, 0.20, 0.01]),
+        daily_cov=np.eye(5),
+        daily_risk_free_rate=DAILY_RF,
+        weight_cap_multiple=2,
+    )
+    np.testing.assert_allclose(
+        p.max_return_weights_closed_form(), [0.0, 0.4, 0.2, 0.4, 0.0], atol=1e-15
+    )
+
+
+def test_closed_form_max_return_without_a_binding_cap_holds_only_the_best_asset():
+    p = problem(3, 4)  # cap 4/3: never binds
+    np.testing.assert_allclose(p.max_return_weights_closed_form(), [0.0, 0.0, 1.0])
+
+
+@pytest.mark.parametrize("n, multiple", [(3, 4), (10, 4), (10, 2), (5, 1.5), (7, 3.3)])
+def test_closed_form_max_return_is_feasible_and_beats_every_sample(n, multiple):
+    p = problem(n, multiple)
+    best = p.max_return_weights_closed_form()
+    assert p.max_constraint_violation(best) <= 1e-12
+    samples = p.sample_feasible_weights(5000, np.random.default_rng(2))
+    assert p.daily_mean_return(samples).max() <= p.daily_mean_return(best) + 1e-12
+
+
+def test_single_asset_weights_give_each_assets_own_statistics():
+    p = problem(4)
+    stats = p.portfolio_stats(p.single_asset_weights())
+    np.testing.assert_allclose(stats.annualized_return, p.daily_mean_returns * 252)
+    np.testing.assert_allclose(stats.risk, np.sqrt(np.diag(p.daily_cov) * 252))

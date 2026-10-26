@@ -50,6 +50,7 @@ PO_CONFIG = PortfolioOptimizationConfig(
     efficient_frontier_points=20,
     simulated_portfolios=500,
     random_seed=0,
+    near_frontier_tolerance=1.0,
 )
 REQUIRED_SESSIONS = required_sessions(TS_CONFIG)
 PRICE_DOWNLOAD_SESSIONS = price_download_sessions(TS_CONFIG)

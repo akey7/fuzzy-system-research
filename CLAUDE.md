@@ -44,7 +44,7 @@ Run from the repo root (paths to `input/` and `output/` are relative to the work
 | File | Role | Run directly? | Uploads? |
 | --- | --- | --- | --- |
 | `scripts/run_optimization_and_time_series.py` | The single backend entry point: parses `--no-upload`, `--retrain-arima`, `--refresh-data`, `--workers`, `--config`, loads the config file and `.env`, calls `pipeline.run_pipeline(ts_config=..., po_config=...)` | Yes | Yes |
-| `config/modeling_and_optimization.yml` | Model settings: `time_series_models` (`training_window_length` in closes, `evaluation_window_length` in days) and `portfolio_optimization` (`weight_cap_multiple`, `efficient_frontier_points`, `simulated_portfolios`, `random_seed`); checked in; changing a value changes uploads | No | No |
+| `config/modeling_and_optimization.yml` | Model settings: `time_series_models` (`training_window_length` in closes, `evaluation_window_length` in days) and `portfolio_optimization` (`weight_cap_multiple`, `efficient_frontier_points`, `simulated_portfolios`, `random_seed`, `near_frontier_tolerance`); checked in; changing a value changes uploads | No | No |
 | `src/fuzzy_system_research/config.py` | Strict loader (`load_config`, pure `parse_config`) → frozen `TimeSeriesConfig` and `PortfolioOptimizationConfig`; read once by the script and passed down, never at import time | No | No |
 | `scripts/ticker_download_to_csv.py` | Download one symbol from Massive.com to CSV | Yes | No |
 | `src/fuzzy_system_research/data/ticker_download_manager.py` | Download new data or retrieve cached data | No | No |

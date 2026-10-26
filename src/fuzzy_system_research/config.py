@@ -19,6 +19,7 @@ File layout:
       efficient_frontier_points: <int>  # target returns on the frontier
       simulated_portfolios: <int>       # random feasible portfolios
       random_seed: <int>                # seed for the random portfolios
+      near_frontier_tolerance: <number> # pp of return counted as "near" the frontier
 
 The current values are in the file itself.
 """
@@ -127,12 +128,19 @@ class PortfolioOptimizationConfig:
 
     random_seed : int
         Seed of the random number generator for those portfolios. At least 0.
+
+    near_frontier_tolerance : int or float
+        A random portfolio counts as near the efficient frontier when its
+        annualized return is within this many percentage points of the
+        frontier's return at the same risk. Reported in
+        optimization_metadata.yml. Greater than 0.
     """
 
     weight_cap_multiple: int | float
     efficient_frontier_points: int
     simulated_portfolios: int
     random_seed: int
+    near_frontier_tolerance: int | float
 
     def __post_init__(self) -> None:
         _require_number_above(
@@ -148,6 +156,9 @@ class PortfolioOptimizationConfig:
             "simulated_portfolios", self.simulated_portfolios, 1, PORTFOLIO_SECTION
         )
         _require_int("random_seed", self.random_seed, 0, PORTFOLIO_SECTION)
+        _require_number_above(
+            "near_frontier_tolerance", self.near_frontier_tolerance, 0, PORTFOLIO_SECTION
+        )
 
 
 @dataclass(frozen=True)
@@ -210,6 +221,7 @@ def parse_config(raw: object) -> ModelingConfig:
             "efficient_frontier_points",
             "simulated_portfolios",
             "random_seed",
+            "near_frontier_tolerance",
         },
     )
     return ModelingConfig(
@@ -222,6 +234,7 @@ def parse_config(raw: object) -> ModelingConfig:
             efficient_frontier_points=po["efficient_frontier_points"],
             simulated_portfolios=po["simulated_portfolios"],
             random_seed=po["random_seed"],
+            near_frontier_tolerance=po["near_frontier_tolerance"],
         ),
     )
 

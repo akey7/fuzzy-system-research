@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Contract version** | 31 |
+| **Contract version** | 32 |
 | **Last updated** | 2026-10-25 |
 | **Source of truth** | `fuzzy-system-research` (backend). The copy in `fuzzy-system-finance` is a mirror. |
 
@@ -184,6 +184,44 @@ min_var_portfolio:
     GLD: 21.403
 ```
 
+Since v32, the file also has four sections that describe the assets, the constraints, the top of the efficient frontier, and the random portfolios in the `.h5` file (the example above predates them). Illustrative values; one key per ticker in `assets` and in `max_return_portfolio.weights`, only three shown:
+
+```yaml
+assets:
+  ETHA:
+    annualized_return: -21.7
+    risk: 71.2
+  GLD:
+    annualized_return: 38.9
+    risk: 19.4
+  NVDA:
+    annualized_return: 41.3
+    risk: 48.0
+constraints:
+  fully_invested: true
+  long_only: true
+  weight_cap: 40.00000000000001
+  weight_cap_multiple: 4
+max_return_portfolio:
+  annualized_return: 38.1
+  risk: 15.4
+  weights:
+    ETHA: 0.0
+    GLD: 40.0
+    NVDA: 19.99999999999998
+random_portfolios:
+  count: 10000
+  equal_weight_annualized_return: 11.2
+  max_annualized_return: 32.2
+  mean_annualized_return: 11.3
+  near_frontier_share: 0.0004
+  near_frontier_tolerance: 1.0
+  random_seed: 20261025
+  return_std: 5.9
+  return_std_uniform_without_cap: 6.4
+  sampling: uniform on the constraint set
+```
+
 ### Fields
 
 | Path | Type | Meaning |
@@ -203,6 +241,21 @@ min_var_portfolio:
 | `min_var_portfolio.weights` | map ticker → float | Weights of the minimum variance portfolio, **in percent**, one key per ticker, in the same form and with the same floating-point noise as `optimum_portfolio.weights`. *Added in v28; absent in older files, so treat it as optional.* |
 | `annualization.method` | string | Always `arithmetic` in v4. Describes how every return and risk in both optimization files was annualized. *Added in v4.* |
 | `annualization.periods_per_year` | int | Trading days per year used for annualization (`252`). *Added in v4.* |
+| `max_return_portfolio.annualized_return` | float | The highest expected return any portfolio can have under the optimizer's constraints, **annualized arithmetically, in percent**: the top of the efficient frontier (`efficient_frontier/ys` in the `.h5` file ends at exactly this value). The backend checks it against the closed-form answer (fill the highest-return assets up to the weight cap, in order) and fails the run if they differ. *Added in v32.* |
+| `max_return_portfolio.risk` | float | Its annualized standard deviation, in percent. *Added in v32.* |
+| `max_return_portfolio.weights` | map ticker → float | Its weights in percent, one key per ticker, with the same floating-point noise as the other weight maps. With a binding cap, the highest-return tickers sit at the cap. *Added in v32.* |
+| `assets.<TICKER>.annualized_return`, `.risk` | float | Each ticker held **on its own**: mean daily return × 252 and daily σ × √252, in percent, from the same data as the optimization. With a binding cap these single-ticker portfolios are not feasible, so do not plot them as candidate portfolios; they explain where the cloud and the frontier sit. Ticker keys are uppercase, as in the weight maps. *Added in v32.* |
+| `constraints.long_only`, `.fully_invested` | bool | Always `true`: weights are at least 0 and sum to 100 %. *Added in v32.* |
+| `constraints.weight_cap` | float | Largest allowed weight of one ticker, **in percent** (`weight_cap_multiple` / number of tickers × 100). A value of 100 or more means the cap does not bind. *Added in v32.* |
+| `constraints.weight_cap_multiple` | int or float | The backend setting the cap comes from. *Added in v32.* |
+| `random_portfolios.count`, `.random_seed` | int | Number of random portfolios in `simulated_portfolios` and the seed they were drawn with. *Added in v32.* |
+| `random_portfolios.sampling` | string | `uniform on the constraint set`. *Added in v32.* |
+| `random_portfolios.max_annualized_return` | float | Highest return among the random portfolios, in percent. Compare with `max_return_portfolio.annualized_return`. *Added in v32.* |
+| `random_portfolios.mean_annualized_return`, `.equal_weight_annualized_return` | float | The random portfolios' average return, and the equally weighted portfolio's, in percent. They agree up to sampling error, because uniform draws average to equal weights: the cloud is centered on the equal-weight portfolio. *Added in v32.* |
+| `random_portfolios.return_std` | float | Standard deviation of the random portfolios' returns, in percentage points. *Added in v32.* |
+| `random_portfolios.return_std_uniform_without_cap` | float | Its theoretical value for uniform draws without a cap: sqrt(Σ(Rᵢ − R̄)² / (n (n + 1))), where Rᵢ are the `assets` returns and n the number of tickers. The cloud's spread is roughly the tickers' own spread divided by sqrt(n + 1); a binding cap narrows it further, so `return_std` is normally smaller. *Added in v32.* |
+| `random_portfolios.near_frontier_tolerance` | float | Percentage points of return (a backend setting). *Added in v32.* |
+| `random_portfolios.near_frontier_share` | float | Fraction (0 to 1) of random portfolios whose return is within `near_frontier_tolerance` of the efficient frontier's return at the same risk (straight lines between frontier points, which can only overstate the share). *Added in v32.* |
 
 ### Notes
 
@@ -213,7 +266,9 @@ min_var_portfolio:
 - **Weights of both portfolios.** Since v28 this file has the weights of both the max Sharpe ratio portfolio (`optimum_portfolio.weights`) and the minimum variance portfolio (`min_var_portfolio.weights`). Before v28, only the max Sharpe ratio weights were included; for those dates, show the minimum variance portfolio's return and risk without weights. The minimum variance portfolio depends only on the estimated covariance of returns, not on expected returns or the risk-free rate, so its weights are usually more stable from one date to the next than the max Sharpe ratio weights.
 - **Suggested wording near a table of both portfolios' weights:** "The minimum variance portfolio uses only the estimated covariance of returns, not expected returns, so it is usually more stable from one date to the next than the max Sharpe portfolio. Both are estimated from about a year of daily data and share the same constraints (long-only, capped weights)."
 - `optimum_portfolio` and `min_var_portfolio` values equal the `max_sharpe_ratio` and `min_var_portfolio` points in the `.h5` file from the same run (same units).
-- **Detecting older files.** A file without an `annualization` key predates v4; its `annualized_return` is compounded and it has no Sharpe ratio or min-variance section. A file whose `min_var_portfolio` has no `weights` key predates v28.
+- **Why few random portfolios come near the efficient frontier** (since v32, the numbers are in the file). The random portfolios are drawn uniformly from the constraint set, so they average to equal weights: their mean return is the equal-weight portfolio's, and their spread is only about the tickers' own spread divided by sqrt(n + 1) (`random_portfolios.return_std` versus `return_std_uniform_without_cap`). The frontier's upper end needs most of the portfolio in a few tickers (`max_return_portfolio.weights`), a corner of the constraint set; with n tickers the share of uniform draws near a corner shrinks roughly like a power n − 1 of the distance, so with 10 tickers essentially none land there. `assets` shows which tickers pull the cloud toward high risk and low return.
+- **Suggested wording near the plot** (fill in `{share}` as `random_portfolios.near_frontier_share` × 100 to one decimal, `{count}` and `{tol}` from `random_portfolios`; leave the sentence out for dates before v32): "Only {share}% of the {count} random portfolios lie within {tol} percentage points of the efficient frontier. Uniform draws cluster around the equal-weight portfolio and rarely reach the corners of the constraint set, where the frontier's high-return portfolios are."
+- **Detecting older files.** A file without an `annualization` key predates v4; its `annualized_return` is compounded and it has no Sharpe ratio or min-variance section. A file whose `min_var_portfolio` has no `weights` key predates v28. A file without `max_return_portfolio`, `assets`, `constraints`, and `random_portfolios` predates v32; treat all four as optional.
 
 ---
 
@@ -270,7 +325,7 @@ In the capital allocation line formula, `risk_free_rate` and `sharpe_ratio` are 
 - **Same units as the YAML file.** Since v4, this file and `optimization_metadata.yml` are both annualized (arithmetic) in percent, so YAML values can be plotted directly on the same axes.
 - **`NaN` values.** An `efficient_frontier/xs` entry is `NaN` when the optimizer did not reach that target return. Readers must drop or break the line at `NaN` and must not treat it as an error. Since v31 every target is feasible, so `NaN` is rare; it can still occur at the very top of the frontier, where the highest feasible return is reached by a single corner portfolio that the optimizer may not converge to. `efficient_frontier/ys` never contains `NaN`. `tangency_line` never contains `NaN` (since v5), and since v31 it no longer depends on the efficient frontier at all.
 - **Older date folders: clip the line.** In date folders written before v31, `tangency_line` extends past the max Sharpe ratio point, to the largest non-`NaN` `efficient_frontier/xs`. Readers must clip it at the max Sharpe ratio risk: keep the points with `xs` ≤ `max_sharpe_ratio/xs[0]` and end the line at the max Sharpe ratio point. Clipping a v31 line changes nothing, so readers may clip every date. Before v31 the efficient frontier ended at the highest simulated return (it could stop short of the highest feasible return, or end in a run of `NaN` points), and the random portfolios ignored the per-ticker weight cap, so some could lie outside the region the optimizer searched.
-- **The random portfolios are illustrative only.** They are drawn uniformly from the constraint set. Uniform draws rarely land near the corners of a capped region, where the most extreme portfolios are, so the cloud does not fill the feasible region: it typically stays well inside the efficient frontier and short of its top end. It is not evidence that the frontier is correct.
+- **The random portfolios are illustrative only.** They are drawn uniformly from the constraint set. Uniform draws rarely land near the corners of a capped region, where the most extreme portfolios are, so the cloud does not fill the feasible region: it typically stays well inside the efficient frontier and short of its top end. It is not evidence that the frontier is correct. Since v32, `random_portfolios` in `optimization_metadata.yml` quantifies this (see the notes there).
 - **Array lengths** (100 and 10,000 for the frontier and the random portfolios) are backend settings, and the capital allocation line has 100 points. Read the shapes from the file and do not hard-code them.
 - The backend does no plotting. All visualization of this data is the frontend's responsibility.
 
@@ -502,6 +557,10 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 - The capital allocation line starts at (0, risk-free rate), is straight, and ends exactly at the max Sharpe ratio point.
 - The `.h5` max Sharpe ratio and minimum variance points equal the YAML values.
 - Every `.h5` risk and return equals the backend's single statistics function applied to the stored weights.
+- (v32) The top of the frontier equals the closed-form maximum feasible return, also checked on every run.
+- (v32) The random portfolios' mean return matches the equal-weight return.
+- (v32) Their spread matches sqrt(Σ(Rᵢ − R̄)² / (n (n + 1))) when the cap does not bind, and halves under a cap that leaves the middle triangle (3 tickers, 50 %).
+- (v32) Draws near the best ticker's corner are 1/32 of all draws with 3 tickers and essentially none with 10.
 
 **Not yet** verified against real data (derived from the code):
 
@@ -514,6 +573,7 @@ Checked against real backend output (2026-10-11), unless dated otherwise:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 32 | 2026-10-25 | **Additive.** `optimization_metadata.yml` gains four optional sections; no existing key, file, value, unit, or upload order changes, and the `.h5` file is unchanged. They explain the plot. `max_return_portfolio` (return, risk, weights) is the highest-return feasible portfolio, the exact top of the efficient frontier, which the backend now also checks against its closed form before upload. `assets` gives each ticker's own annualized return and risk. `constraints` gives long-only, fully invested, and the weight cap in percent. `random_portfolios` gives the count, the seed, the highest and mean random return next to the equal-weight return, the measured and theoretical spread of their returns, and the share of them within a tolerance of the frontier. Added notes on why few random portfolios come near the frontier, and suggested wording that fills in the share. Also added the backend setting `near_frontier_tolerance`. Frontend: no change required; optionally show the suggested sentence (for v32+ dates only) and a table of `assets`. Treat the four sections as optional. |
 | 31 | 2026-10-25 | **BREAKING (geometry) of `portfolio_optimization_plot_data.h5`, approved by the human.** No group, dataset, shape, dtype, unit, or attribute is renamed or changed, and `optimization_metadata.yml` is unchanged apart from floating-point noise. The meaning of three groups changes: (1) `tangency_line`, now called the **capital allocation line (CAL)**, runs from (0, `risk_free_rate`) to **exactly** the max Sharpe ratio point and stops there (its last point equals `max_sharpe_ratio` xs and ys); it used to continue to the largest efficient-frontier risk, which implied leverage. It is still 100 points, evenly spaced in `xs`. The name "capital market line" is retired. (2) `efficient_frontier` target returns now run from the minimum variance return to the **highest feasible return** under the optimizer's constraints, instead of to the highest simulated return. That old end could fall short of the feasible maximum (truncating the frontier) or exceed it (a tail of `NaN`), and it depended on the random draws. The frontier now usually reaches further up and right, and `NaN` points are rare. (3) `simulated_portfolios` are now drawn uniformly (seeded, reproducible) from the **same constraint set as the optimizer**, including the per-ticker weight cap that the old draws ignored; the cloud is illustrative only and does not fill the feasible region. Internally, every coordinate in the file now comes from one backend definition of the problem and one statistics function, and the run fails before upload if the invariants under "One definition behind every point" do not hold. The weight cap, the frontier length, the number of random portfolios, and the seed are now backend settings, with values unchanged. Also added suggested UI wording for the plot; the suggested y-axis label is now "Annualized Arithmetic Expected Return (%)". Frontend must: (a) clip `tangency_line` at `max_sharpe_ratio/xs[0]` for date folders written before v31 (harmless for v31 folders, so clipping every date is simplest); (b) relabel the line "Capital allocation line" and stop calling it the capital market line; (c) not assume the frontier ends at the top of the random cloud, and keep breaking the line at `NaN`; (d) use the suggested title, subtitle, axis labels, legend labels (filling in the risk-free rate from `optimization_metadata.yml`), and caption, without repeating the investment-advice disclaimer; (e) read all array lengths from the file. |
 | 30 | 2026-10-24 | Non-breaking; no change to keys, values, types, or units. `optimization_metadata.yml` now has a comment line, `# optimum_portfolio is the maximum Sharpe ratio (tangency) portfolio.`, directly above the `optimum_portfolio` key, because the key's name is ambiguous. YAML parsers ignore comments, so the parsed contents are unchanged; the key is not renamed. Frontend: no change required; replace its copy with this file. Where the UI labels this section, call it the maximum Sharpe ratio portfolio. |
 | 29 | 2026-10-24 | Backend safeguard; no change to files, keys, columns, types, units, or the meaning of any value. The backend now checks that the max Sharpe ratio and minimum variance optimizations converge; if either does not, the run fails before uploading, as a missing risk-free rate already does (v14). Before v29 an unconverged optimization's weights could have been uploaded without warning. Efficient-frontier points the optimizer cannot reach are still `NaN`, as before. Added the "Converged optimizations only" note to `optimization_metadata.yml`. Frontend: no change required; replace its copy with this file. |

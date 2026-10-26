@@ -32,6 +32,7 @@ PORTFOLIO = {
     "efficient_frontier_points": 100,
     "simulated_portfolios": 10_000,
     "random_seed": 7,
+    "near_frontier_tolerance": 1.0,
 }
 PORTFOLIO_YAML = (
     "portfolio_optimization:\n"
@@ -39,6 +40,7 @@ PORTFOLIO_YAML = (
     "  efficient_frontier_points: 100\n"
     "  simulated_portfolios: 10000\n"
     "  random_seed: 7\n"
+    "  near_frontier_tolerance: 1.0\n"
 )
 
 
@@ -71,6 +73,7 @@ def test_parse_config_reads_every_value():
             efficient_frontier_points=100,
             simulated_portfolios=10_000,
             random_seed=7,
+            near_frontier_tolerance=1.0,
         ),
     )
 
@@ -221,6 +224,24 @@ def test_portfolio_counts_have_minimums(key, too_small):
 def test_portfolio_counts_must_be_integers(key, value):
     with pytest.raises(ConfigError, match=f"portfolio_optimization.{key} must be an integer"):
         parse_config(raw(portfolio={key: value}))
+
+
+@pytest.mark.parametrize("value", [0.5, 1, 2.0])
+def test_near_frontier_tolerance_accepts_positive_numbers(value):
+    config = parse_config(raw(portfolio={"near_frontier_tolerance": value}))
+    assert config.portfolio_optimization.near_frontier_tolerance == value
+
+
+@pytest.mark.parametrize("value", [0, -1.0])
+def test_near_frontier_tolerance_must_be_positive(value):
+    with pytest.raises(ConfigError, match="near_frontier_tolerance must be greater than 0"):
+        parse_config(raw(portfolio={"near_frontier_tolerance": value}))
+
+
+@pytest.mark.parametrize("value", ["1", True, None, float("nan")])
+def test_near_frontier_tolerance_must_be_a_number(value):
+    with pytest.raises(ConfigError, match="near_frontier_tolerance must be a number"):
+        parse_config(raw(portfolio={"near_frontier_tolerance": value}))
 
 
 # load_config

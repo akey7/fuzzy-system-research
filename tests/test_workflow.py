@@ -56,6 +56,7 @@ SETTINGS = PortfolioOptimizationConfig(
     efficient_frontier_points=60,
     simulated_portfolios=4000,
     random_seed=0,
+    near_frontier_tolerance=1.0,
 )
 # Three assets with a multiple of 1.5: each weight is capped at 50 %, which
 # binds, unlike 4 / 3.
@@ -505,3 +506,160 @@ def test_annualized_frontier_targets_use_the_shared_helper(result, wide):
     problem = PortfolioProblem.from_prices(wide, DAILY_RF, SETTINGS.weight_cap_multiple)
     daily_low = problem.daily_mean_return(result.min_var_weights)
     assert result.frontier_returns[0] == float(annualize_return(daily_low))
+
+
+# The top of the frontier is the maximum feasible return
+
+
+def test_max_return_portfolio_is_the_closed_form_maximum(case):
+    _, problem, res = case
+    closed_form = problem.portfolio_stats(problem.max_return_weights_closed_form())
+    assert res.max_return_return == pytest.approx(closed_form.annualized_return, abs=1e-3)
+    assert res.frontier_returns[-1] == pytest.approx(res.max_return_return, rel=1e-12)
+    assert problem.max_constraint_violation(res.max_return_weights) <= 1e-5
+
+
+def test_invariants_reject_a_frontier_that_stops_short(checked):
+    problem, res = checked
+    with pytest.raises(InvariantError, match="closed-form maximum feasible return"):
+        check_optimization_invariants(
+            problem, dataclasses.replace(res, max_return_return=res.max_return_return - 0.5)
+        )
+
+
+def test_verify_optimization_files_detects_a_wrong_frontier_end(result, tmp_path):
+    h5_path, yml_path = write_both(result, tmp_path)
+    metadata = build_optimization_metadata(result, TICKERS, RF_DATA)
+    metadata["max_return_portfolio"]["annualized_return"] += 0.5
+    write_optimization_metadata(metadata, str(yml_path))
+    with pytest.raises(InvariantError, match="max_return_portfolio"):
+        verify_optimization_files(str(h5_path), str(yml_path))
+
+
+# New optimization_metadata.yml sections
+
+
+def test_metadata_records_assets_constraints_max_return_and_random_summary(result, tmp_path):
+    _, yml_path = write_both(result, tmp_path)
+    loaded = yaml.safe_load(yml_path.read_text())
+    assert set(loaded["assets"]) == set(TICKERS)
+    for i, ticker in enumerate(result.tickers):
+        assert loaded["assets"][ticker] == {
+            "annualized_return": pytest.approx(result.asset_returns[i]),
+            "risk": pytest.approx(result.asset_risks[i]),
+        }
+    assert loaded["constraints"] == {
+        "long_only": True,
+        "fully_invested": True,
+        "weight_cap": pytest.approx(4 / 3 * 100),
+        "weight_cap_multiple": 4,
+    }
+    mr = loaded["max_return_portfolio"]
+    assert mr["annualized_return"] == result.max_return_return
+    assert mr["risk"] == result.max_return_risk
+    assert mr["weights"] == pytest.approx(result.max_return_weights_pct)
+    rp = loaded["random_portfolios"]
+    assert rp["sampling"] == "uniform on the constraint set"
+    assert rp["count"] == SETTINGS.simulated_portfolios
+    assert rp["random_seed"] == SETTINGS.random_seed
+    assert rp["near_frontier_tolerance"] == SETTINGS.near_frontier_tolerance
+    assert rp["max_annualized_return"] == pytest.approx(result.simulated_returns.max())
+    assert 0.0 <= rp["near_frontier_share"] <= 1.0
+    for value in (*rp.values(), *mr.values()):
+        assert not isinstance(value, np.generic)  # Plain YAML, no numpy tags.
+
+
+def test_asset_statistics_are_portfolio_stats_of_single_asset_portfolios(case):
+    _, problem, res = case
+    stats = problem.portfolio_stats(problem.single_asset_weights())
+    np.testing.assert_array_equal(res.asset_returns, stats.annualized_return)
+    np.testing.assert_array_equal(res.asset_risks, stats.risk)
+
+
+# Why few random portfolios come near the frontier
+
+
+def test_random_cloud_is_centered_on_the_equal_weight_portfolio(case):
+    # The constraint set treats every asset alike, so uniform draws have an
+    # average weight of 1 / n and an average return equal to the equal-weight
+    # portfolio's, up to sampling error (5 standard errors here).
+    _, _, res = case
+    rp = res.random_portfolios
+    standard_error = rp.return_std / np.sqrt(rp.count)
+    assert abs(rp.mean_annualized_return - rp.equal_weight_annualized_return) < 5 * standard_error
+
+
+def test_uncapped_spread_matches_the_uniform_theory(result):
+    # SETTINGS' cap (4/3) does not bind with 3 assets, so the measured spread
+    # must match sqrt(Σ(Rᵢ − R̄)² / (n (n + 1))) up to sampling error (the
+    # relative standard error of a standard deviation from 4,000 draws is
+    # about 1 %).
+    rp = result.random_portfolios
+    assert rp.return_std == pytest.approx(rp.return_std_uniform_without_cap, rel=0.05)
+
+
+def test_binding_cap_narrows_the_spread(wide):
+    # With 3 assets and a 50 % cap the feasible set is the middle triangle of
+    # the simplex, half the size in every direction, so the spread halves.
+    res = run_portfolio_optimization(wide, DAILY_RF, CAPPED_SETTINGS)
+    rp = res.random_portfolios
+    assert rp.return_std == pytest.approx(0.5 * rp.return_std_uniform_without_cap, rel=0.05)
+
+
+def test_uniform_theory_formula():
+    # R = (0, 1, 2): Σ(Rᵢ − R̄)² = 2, n (n + 1) = 12.
+    assert workflow.uniform_return_std_without_cap(np.array([0.0, 1.0, 2.0])) == pytest.approx(
+        np.sqrt(2 / 12)
+    )
+
+
+def corner_share(n: int, draws: int = 20_000) -> float:
+    """
+    Share of uniform random portfolios (no cap) of n assets with returns
+    0, 1, ..., n − 1 whose return is within an eighth of (n − 1) of the
+    maximum: return ≥ 0.875 (n − 1), i.e. near the best asset's corner.
+    """
+    problem = PortfolioProblem(
+        tickers=tuple(f"T{i}" for i in range(n)),
+        daily_mean_returns=np.arange(n, dtype=float),
+        daily_cov=np.eye(n),
+        daily_risk_free_rate=0.0,
+        weight_cap_multiple=n,  # cap 1: does not bind
+    )
+    w = problem.sample_feasible_weights(draws, np.random.default_rng(0))
+    return float(np.mean(problem.daily_mean_return(w) >= 0.875 * (n - 1)))
+
+
+def test_portfolios_near_the_best_corner_become_vanishingly_rare_as_n_grows():
+    # With 3 assets the corner region (vertices (0, 0, 1), (1/8, 0, 7/8),
+    # (0, 1/4, 3/4) in weights) is 1/32 of the simplex. Its share shrinks
+    # roughly like a power n − 1 of its width, so with 10 assets uniform
+    # draws essentially never land there: the reason so few random
+    # portfolios reach the top of the frontier.
+    assert corner_share(3) == pytest.approx(1 / 32, abs=0.005)
+    assert corner_share(10) < corner_share(3) / 30
+
+
+def test_frontier_return_at_risk_interpolates_and_clamps():
+    risks = np.array([1.0, 2.0, np.nan, 4.0])
+    returns = np.array([1.0, 3.0, 3.5, 4.0])
+    at = workflow.frontier_return_at_risk(risks, returns, np.array([0.5, 1.5, 3.0, 10.0]))
+    np.testing.assert_allclose(at, [1.0, 2.0, 3.5, 4.0])
+
+
+def test_frontier_return_at_risk_is_non_decreasing_in_risk():
+    risks = np.array([1.0, 1.5, 2.0])
+    returns = np.array([2.0, 1.9, 3.0])  # A tiny numerical dip is smoothed out.
+    at = workflow.frontier_return_at_risk(risks, returns, np.array([1.5]))
+    assert at[0] == pytest.approx(2.0)
+
+
+def test_near_frontier_share_matches_a_direct_count(result):
+    gap = (
+        workflow.frontier_return_at_risk(
+            result.frontier_risks, result.frontier_returns, result.simulated_risks
+        )
+        - result.simulated_returns
+    )
+    rp = result.random_portfolios
+    assert rp.near_frontier_share == np.mean(gap <= rp.near_frontier_tolerance)

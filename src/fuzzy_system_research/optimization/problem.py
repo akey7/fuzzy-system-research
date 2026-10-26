@@ -276,6 +276,43 @@ class PortfolioProblem:
         """
         return [{"type": "eq", "fun": _budget_constraint}]
 
+    def single_asset_weights(self) -> np.ndarray:
+        """
+        One row per asset holding only that asset, shape (n, n). Pass to
+        portfolio_stats() for each asset's own annualized return and risk.
+        These portfolios ignore the weight cap, so they are generally not
+        feasible; they describe the assets, not candidate portfolios.
+        """
+        return np.eye(self.n_assets)
+
+    def max_return_weights_closed_form(self) -> np.ndarray:
+        """
+        The highest-return portfolio under this problem's constraints, in
+        closed form: fill the assets in order of decreasing mean return, each
+        up to weight_cap, until the weights sum to 1 (with a cap of 40 %:
+        40 % in the best asset, 40 % in the second, 20 % in the third).
+
+        This is exact for this constraint set (long-only, fully invested,
+        the same cap for every asset): moving weight from a filled asset to
+        a later one can only lower the return. Ties in mean return make the
+        weights non-unique but not the return. Used to check the optimizer's
+        maximum return portfolio, which sets the top of the efficient
+        frontier.
+
+        Returns
+        -------
+        np.ndarray
+            Weights as fractions, shape (n,), in the order of tickers.
+        """
+        weights = np.zeros(self.n_assets)
+        remaining = 1.0
+        for i in np.argsort(-self.daily_mean_returns, kind="stable"):
+            weights[i] = min(self.weight_cap, remaining)
+            remaining -= weights[i]
+            if remaining <= 0:
+                break
+        return weights
+
     def max_constraint_violation(self, weights: np.ndarray) -> float | np.ndarray:
         """
         How far weights are from the constraint set: the largest of the

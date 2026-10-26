@@ -15,6 +15,10 @@ for everything:
   target returns, which are the target grid and are checked against
   portfolio_stats(). The capital allocation line is built from the max
   Sharpe ratio point.
+- optimization_metadata.yml also records why the random cloud sits where
+  it does: each asset's own return and risk, the constraints, the maximum
+  return portfolio (the top of the frontier, checked against its closed
+  form), and a summary of the random portfolios (RandomPortfolioSummary).
 
 Conventions:
 - Returns are simple daily returns in percent; the optimizers work in daily
@@ -37,6 +41,7 @@ Conventions:
   optimization disagree, which also stops the run before any upload.
 """
 
+import dataclasses
 from dataclasses import dataclass
 import h5py
 import numpy as np
@@ -95,6 +100,58 @@ class InvariantError(OptimizationError):
     """The plot data disagree with the optimization, so nothing is uploaded."""
 
 
+@dataclass(frozen=True)
+class RandomPortfolioSummary:
+    """
+    How the random portfolios relate to the assets and the efficient
+    frontier, written to optimization_metadata.yml (random_portfolios) so a
+    reader can see why few of them come near the frontier. Returns and
+    standard deviations are annualized, in percent per year.
+
+    Attributes
+    ----------
+    count, random_seed : int
+        Number of random portfolios and the seed they were drawn with.
+
+    max_annualized_return : float
+        Highest return among them; compare with the maximum feasible return
+        (the top of the efficient frontier).
+
+    mean_annualized_return, equal_weight_annualized_return : float
+        Their average return, and the equally weighted portfolio's return.
+        Uniform draws from a constraint set that treats every asset alike
+        have an average weight of 1 / n, so the two agree up to sampling
+        error: the cloud is centered on the equal-weight portfolio.
+
+    return_std, return_std_uniform_without_cap : float
+        Standard deviation of their returns, and its theoretical value for
+        uniform draws from the long-only, fully invested set without a cap:
+        sqrt(Σ(Rᵢ − R̄)² / (n (n + 1))), where Rᵢ are the assets'
+        annualized returns. The spread is about the assets' own spread
+        divided by sqrt(n + 1); a binding cap narrows it further.
+
+    near_frontier_tolerance : float
+        Percentage points of return within which a random portfolio counts
+        as near the frontier.
+
+    near_frontier_share : float
+        Fraction (0 to 1) of random portfolios whose return is within
+        near_frontier_tolerance of the efficient frontier's return at the
+        same risk (see frontier_return_at_risk(), which slightly
+        overstates this share).
+    """
+
+    count: int
+    random_seed: int
+    max_annualized_return: float
+    mean_annualized_return: float
+    equal_weight_annualized_return: float
+    return_std: float
+    return_std_uniform_without_cap: float
+    near_frontier_tolerance: float
+    near_frontier_share: float
+
+
 @dataclass(frozen=True, eq=False)
 class OptimizationResult:
     """
@@ -106,14 +163,20 @@ class OptimizationResult:
 
     frontier_weights has a row of NaN (and frontier_risks a NaN) for each
     target return the optimizer did not reach. frontier_returns are the
-    target returns. tangency_* is the capital allocation line, from
-    (0, annual_risk_free_rate) to the max Sharpe ratio point.
+    target returns, ending at max_return_return. tangency_* is the capital
+    allocation line, from (0, annual_risk_free_rate) to the max Sharpe ratio
+    point. asset_returns and asset_risks describe each asset on its own (in
+    the order of tickers). weight_cap is a fraction of the portfolio.
     """
 
     date_from: pd.Timestamp
     date_to: pd.Timestamp
     tickers: tuple[str, ...]
     annual_risk_free_rate: float
+    weight_cap: float
+    weight_cap_multiple: int | float
+    asset_returns: np.ndarray
+    asset_risks: np.ndarray
     frontier_risks: np.ndarray
     frontier_returns: np.ndarray
     frontier_weights: np.ndarray
@@ -129,6 +192,10 @@ class OptimizationResult:
     min_var_risk: float
     min_var_return: float
     min_var_weights: np.ndarray
+    max_return_risk: float
+    max_return_return: float
+    max_return_weights: np.ndarray
+    random_portfolios: RandomPortfolioSummary
 
     @property
     def max_sharpe_weights_pct(self) -> dict[str, float]:
@@ -139,6 +206,11 @@ class OptimizationResult:
     def min_var_weights_pct(self) -> dict[str, float]:
         """Minimum variance weights in percent, keyed by ticker."""
         return _weights_pct(self.tickers, self.min_var_weights)
+
+    @property
+    def max_return_weights_pct(self) -> dict[str, float]:
+        """Maximum return weights in percent, keyed by ticker."""
+        return _weights_pct(self.tickers, self.max_return_weights)
 
 
 def _weights_pct(tickers: tuple[str, ...], weights: np.ndarray) -> dict[str, float]:
@@ -181,6 +253,94 @@ def capital_allocation_line(
     """
     t = np.linspace(0.0, 1.0, n_points)
     return t * max_sharpe_risk, (1.0 - t) * annual_risk_free_rate + t * max_sharpe_return
+
+
+def frontier_return_at_risk(
+    frontier_risks: np.ndarray, frontier_returns: np.ndarray, risks: np.ndarray
+) -> np.ndarray:
+    """
+    The efficient frontier's return at each given risk: linear
+    interpolation between the reached frontier points (sorted by risk, with
+    returns made non-decreasing), the minimum variance return below the
+    least risky point, and the highest frontier return above the riskiest
+    one (no feasible portfolio earns more). Pure function.
+
+    The true frontier is concave, so straight lines between its points lie
+    on or below it; a gap measured from this curve is never too large, and
+    a "near the frontier" share based on it is, if anything, too high.
+
+    Parameters
+    ----------
+    frontier_risks, frontier_returns : np.ndarray
+        Annualized risks (NaN where unreached) and target returns of the
+        frontier points.
+
+    risks : np.ndarray
+        Annualized risks to evaluate at.
+
+    Returns
+    -------
+    np.ndarray
+        Annualized frontier returns, same shape as risks.
+    """
+    reached = ~np.isnan(frontier_risks)
+    order = np.argsort(frontier_risks[reached], kind="stable")
+    xp = frontier_risks[reached][order]
+    fp = np.maximum.accumulate(frontier_returns[reached][order])
+    return np.interp(risks, xp, fp)
+
+
+def uniform_return_std_without_cap(asset_returns: np.ndarray) -> float:
+    """
+    Standard deviation of the return of a portfolio drawn uniformly from the
+    long-only, fully invested set (no cap): sqrt(Σ(Rᵢ − R̄)² / (n (n + 1))).
+    Uniform weights are Dirichlet(1, ..., 1), with Var(wᵢ) = (n − 1) /
+    (n² (n + 1)) and Cov(wᵢ, wⱼ) = −1 / (n² (n + 1)), which give this
+    variance for w·R. Pure function.
+
+    Parameters
+    ----------
+    asset_returns : np.ndarray
+        Annualized return Rᵢ of each asset, shape (n,).
+
+    Returns
+    -------
+    float
+        The standard deviation, in the units of asset_returns.
+    """
+    n = len(asset_returns)
+    spread = np.sum((asset_returns - asset_returns.mean()) ** 2)
+    return float(np.sqrt(spread / (n * (n + 1))))
+
+
+def summarize_random_portfolios(
+    simulated_returns: np.ndarray,
+    simulated_risks: np.ndarray,
+    frontier_risks: np.ndarray,
+    frontier_returns: np.ndarray,
+    asset_returns: np.ndarray,
+    equal_weight_return: float,
+    settings: PortfolioOptimizationConfig,
+) -> RandomPortfolioSummary:
+    """
+    Build the RandomPortfolioSummary written to optimization_metadata.yml.
+    All inputs are annualized, in percent per year. Pure function.
+    """
+    gap = (
+        frontier_return_at_risk(frontier_risks, frontier_returns, simulated_risks)
+        - simulated_returns
+    )
+    return RandomPortfolioSummary(
+        count=len(simulated_returns),
+        random_seed=settings.random_seed,
+        max_annualized_return=float(simulated_returns.max()),
+        mean_annualized_return=float(simulated_returns.mean()),
+        equal_weight_annualized_return=float(equal_weight_return),
+        return_std=float(np.std(simulated_returns, ddof=1)),
+        return_std_uniform_without_cap=uniform_return_std_without_cap(asset_returns),
+        near_frontier_tolerance=float(settings.near_frontier_tolerance),
+        near_frontier_share=float(np.mean(gap <= settings.near_frontier_tolerance)),
+    )
 
 
 def run_portfolio_optimization(
@@ -250,8 +410,12 @@ def run_portfolio_optimization(
 
     min_var = problem.portfolio_stats(min_var_w)
     max_sharpe = problem.portfolio_stats(max_sharpe_w)
+    max_return = problem.portfolio_stats(max_return_w)
     frontier = problem.portfolio_stats(frontier_w)
     simulated = problem.portfolio_stats(simulated_w)
+    assets = problem.portfolio_stats(problem.single_asset_weights())
+    equal_weight = problem.portfolio_stats(problem.equal_weights())
+    frontier_returns = annualize_return(targets, problem.periods_per_year)
     cal_risks, cal_returns = capital_allocation_line(
         problem.annual_risk_free_rate, max_sharpe.risk, max_sharpe.annualized_return
     )
@@ -260,8 +424,12 @@ def run_portfolio_optimization(
         date_to=wide_df.index[-1],
         tickers=problem.tickers,
         annual_risk_free_rate=problem.annual_risk_free_rate,
+        weight_cap=problem.weight_cap,
+        weight_cap_multiple=settings.weight_cap_multiple,
+        asset_returns=assets.annualized_return,
+        asset_risks=assets.risk,
         frontier_risks=frontier.risk,
-        frontier_returns=annualize_return(targets, problem.periods_per_year),
+        frontier_returns=frontier_returns,
         frontier_weights=frontier_w,
         tangency_risks=cal_risks,
         tangency_returns=cal_returns,
@@ -275,7 +443,21 @@ def run_portfolio_optimization(
         min_var_risk=min_var.risk,
         min_var_return=min_var.annualized_return,
         min_var_weights=min_var_w,
+        max_return_risk=max_return.risk,
+        max_return_return=max_return.annualized_return,
+        max_return_weights=max_return_w,
+        random_portfolios=summarize_random_portfolios(
+            simulated.annualized_return,
+            simulated.risk,
+            frontier.risk,
+            frontier_returns,
+            assets.annualized_return,
+            equal_weight.annualized_return,
+            settings,
+        ),
     )
+    print("Random portfolios:")
+    print(result.random_portfolios)
     print("Minimum variance weights %:")
     print(result.min_var_weights_pct)
     print("Best weights %:")
@@ -315,6 +497,10 @@ def check_optimization_invariants(
     6. The capital allocation line starts at (0, annual risk-free rate),
        ends exactly at the max Sharpe ratio point with no risk beyond it,
        has non-decreasing risks, and is straight with slope sharpe_ratio.
+    7. The maximum return portfolio (the top of the efficient frontier)
+       earns the closed-form maximum feasible return
+       (PortfolioProblem.max_return_weights_closed_form()), and the
+       frontier's last target return is that portfolio's return.
 
     Parameters
     ----------
@@ -330,6 +516,7 @@ def check_optimization_invariants(
         ("random portfolio", result.simulated_weights),
         ("max Sharpe ratio portfolio", result.max_sharpe_weights[None, :]),
         ("minimum variance portfolio", result.min_var_weights[None, :]),
+        ("maximum return portfolio", result.max_return_weights[None, :]),
         ("efficient frontier portfolio", result.frontier_weights[reached]),
     ):
         violation = problem.max_constraint_violation(weights)
@@ -396,6 +583,23 @@ def check_optimization_invariants(
     ):
         _fail("the capital allocation line is not straight with slope sharpe_ratio.")
 
+    # 7. The top of the frontier is the maximum feasible return
+    closed_form = problem.portfolio_stats(
+        problem.max_return_weights_closed_form()
+    ).annualized_return
+    if not abs(result.max_return_return - closed_form) <= RETURN_TOLERANCE:
+        _fail(
+            f"the maximum return portfolio earns {result.max_return_return:.6g}, not "
+            f"the closed-form maximum feasible return {closed_form:.6g}."
+        )
+    if not np.isclose(
+        result.frontier_returns[-1],
+        result.max_return_return,
+        rtol=EXACT_RELATIVE_TOLERANCE,
+        atol=0.0,
+    ):
+        _fail("the efficient frontier does not end at the maximum feasible return.")
+
 
 def write_plot_data_h5(result: OptimizationResult, path: str) -> None:
     """
@@ -439,9 +643,10 @@ def build_optimization_metadata(
 ) -> dict:
     """
     Build the contents of optimization_metadata.yml as specified in
-    docs/INTERFACE_CONTRACT.md, including the weights (in percent) of both
-    the max Sharpe ratio portfolio and the minimum variance portfolio. Pure
-    function.
+    docs/INTERFACE_CONTRACT.md, including the weights (in percent) of the
+    max Sharpe ratio, minimum variance, and maximum return portfolios, each
+    asset's own annualized return and risk, the constraints, and the
+    random-portfolio summary. Pure function.
 
     Parameters
     ----------
@@ -481,6 +686,25 @@ def build_optimization_metadata(
             "annualized_return": result.min_var_return,
             "risk": result.min_var_risk,
             "weights": result.min_var_weights_pct,
+        },
+        "max_return_portfolio": {
+            "annualized_return": result.max_return_return,
+            "risk": result.max_return_risk,
+            "weights": result.max_return_weights_pct,
+        },
+        "assets": {
+            ticker: {"annualized_return": float(r), "risk": float(s)}
+            for ticker, r, s in zip(result.tickers, result.asset_returns, result.asset_risks)
+        },
+        "constraints": {
+            "long_only": True,
+            "fully_invested": True,
+            "weight_cap": float(result.weight_cap * 100),
+            "weight_cap_multiple": result.weight_cap_multiple,
+        },
+        "random_portfolios": {
+            "sampling": "uniform on the constraint set",
+            **dataclasses.asdict(result.random_portfolios),
         },
     }
 
@@ -538,7 +762,9 @@ def verify_optimization_files(plot_data_path: str, metadata_path: str) -> None:
     the max Sharpe ratio and minimum variance points in the .h5 file equal
     the risk and annualized_return in the .yml file; the capital allocation
     line starts at (0, risk_free_rate) and ends exactly at the .h5 max
-    Sharpe ratio point with no risk beyond it.
+    Sharpe ratio point with no risk beyond it; the efficient frontier ends
+    at max_return_portfolio's return; and the number of random portfolios
+    equals random_portfolios.count.
 
     Parameters
     ----------
@@ -555,6 +781,8 @@ def verify_optimization_files(plot_data_path: str, metadata_path: str) -> None:
         }
         cal_xs = hf["tangency_line/xs"][()]
         cal_ys = hf["tangency_line/ys"][()]
+        frontier_top = float(hf["efficient_frontier/ys"][-1])
+        n_simulated = len(hf["simulated_portfolios/xs"])
     with open(metadata_path, encoding="utf-8") as f:
         metadata = yaml.safe_load(f)
 
@@ -574,3 +802,7 @@ def verify_optimization_files(plot_data_path: str, metadata_path: str) -> None:
         _fail("the .h5 capital allocation line does not end at the max Sharpe ratio point.")
     if not (cal_xs[0] == 0.0 and same(cal_ys[0], metadata["risk_free_rate"]["risk_free_rate"])):
         _fail("the .h5 capital allocation line does not start at (0, risk_free_rate).")
+    if not same(frontier_top, metadata["max_return_portfolio"]["annualized_return"]):
+        _fail("the .h5 efficient frontier does not end at max_return_portfolio in the .yml file.")
+    if n_simulated != metadata["random_portfolios"]["count"]:
+        _fail("the .h5 random portfolios differ in number from random_portfolios.count.")
