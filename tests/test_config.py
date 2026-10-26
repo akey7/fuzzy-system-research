@@ -1,6 +1,7 @@
 """
 Tests for fuzzy_system_research.config: strict parsing and validation of the
-model settings, loading from a YAML file, and the repository's own
+time series and portfolio optimization settings, loading from a YAML file,
+and the repository's own
 config/modeling_and_optimization.yml.
 
 Files are written only under pytest's tmp_path. The repository's config file
@@ -17,6 +18,7 @@ from fuzzy_system_research.config import (
     MIN_TRAINING_WINDOW_LENGTH,
     ConfigError,
     ModelingConfig,
+    PortfolioOptimizationConfig,
     TimeSeriesConfig,
     load_config,
     parse_config,
@@ -25,26 +27,54 @@ from fuzzy_system_research.config import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def raw(training=252, evaluation=20, **extra) -> dict:
-    """A parsed YAML document; extra keys go under time_series_models."""
+PORTFOLIO = {
+    "weight_cap_multiple": 4,
+    "efficient_frontier_points": 100,
+    "simulated_portfolios": 10_000,
+    "random_seed": 7,
+    "near_frontier_tolerance": 1.0,
+}
+PORTFOLIO_YAML = (
+    "portfolio_optimization:\n"
+    "  weight_cap_multiple: 4\n"
+    "  efficient_frontier_points: 100\n"
+    "  simulated_portfolios: 10000\n"
+    "  random_seed: 7\n"
+    "  near_frontier_tolerance: 1.0\n"
+)
+
+
+def raw(training=252, evaluation=20, portfolio=None, **extra) -> dict:
+    """
+    A parsed YAML document; extra keys go under time_series_models, and
+    portfolio (a dict) replaces or adds portfolio_optimization keys.
+    """
     return {
         "time_series_models": {
             "training_window_length": training,
             "evaluation_window_length": evaluation,
             **extra,
-        }
+        },
+        "portfolio_optimization": {**PORTFOLIO, **(portfolio or {})},
     }
 
 
 # parse_config and TimeSeriesConfig
 
 
-def test_parse_config_reads_both_values():
+def test_parse_config_reads_every_value():
     config = parse_config(raw())
     assert config == ModelingConfig(
         time_series_models=TimeSeriesConfig(
             training_window_length=252, evaluation_window_length=20
-        )
+        ),
+        portfolio_optimization=PortfolioOptimizationConfig(
+            weight_cap_multiple=4,
+            efficient_frontier_points=100,
+            simulated_portfolios=10_000,
+            random_seed=7,
+            near_frontier_tolerance=1.0,
+        ),
     )
 
 
@@ -78,7 +108,12 @@ def test_unknown_top_level_section_is_rejected():
 
 def test_section_must_be_a_mapping():
     with pytest.raises(ConfigError, match="time_series_models must be a mapping"):
-        parse_config({"time_series_models": None})
+        parse_config({**raw(), "time_series_models": None})
+
+
+def test_portfolio_section_must_be_a_mapping():
+    with pytest.raises(ConfigError, match="portfolio_optimization must be a mapping"):
+        parse_config({**raw(), "portfolio_optimization": None})
 
 
 @pytest.mark.parametrize("key", ["training_window_length", "evaluation_window_length"])
@@ -132,6 +167,83 @@ def test_direct_construction_is_validated_too():
         TimeSeriesConfig(training_window_length=10, evaluation_window_length=20)
 
 
+# portfolio_optimization
+
+
+def test_missing_portfolio_section_is_rejected():
+    document = raw()
+    del document["portfolio_optimization"]
+    with pytest.raises(ConfigError, match="missing required key.*portfolio_optimization"):
+        parse_config(document)
+
+
+@pytest.mark.parametrize("key", sorted(PORTFOLIO))
+def test_missing_portfolio_key_is_rejected(key):
+    document = raw()
+    del document["portfolio_optimization"][key]
+    with pytest.raises(ConfigError, match=f"missing required key.*{key}"):
+        parse_config(document)
+
+
+def test_unknown_portfolio_key_is_rejected():
+    with pytest.raises(ConfigError, match="unknown key.*weight_cap"):
+        parse_config(raw(portfolio={"weight_cap": 0.4}))
+
+
+@pytest.mark.parametrize("value", [1.5, 2, 4, 10])
+def test_weight_cap_multiple_accepts_numbers_above_one(value):
+    config = parse_config(raw(portfolio={"weight_cap_multiple": value}))
+    assert config.portfolio_optimization.weight_cap_multiple == value
+
+
+@pytest.mark.parametrize("value", [1, 0.5, 0, -2])
+def test_weight_cap_multiple_must_exceed_one(value):
+    with pytest.raises(ConfigError, match="weight_cap_multiple must be greater than 1"):
+        parse_config(raw(portfolio={"weight_cap_multiple": value}))
+
+
+@pytest.mark.parametrize("value", ["4", True, None, float("nan"), float("inf")])
+def test_weight_cap_multiple_must_be_a_finite_number(value):
+    with pytest.raises(ConfigError, match="weight_cap_multiple must be a number"):
+        parse_config(raw(portfolio={"weight_cap_multiple": value}))
+
+
+@pytest.mark.parametrize(
+    "key, too_small",
+    [("efficient_frontier_points", 1), ("simulated_portfolios", 0), ("random_seed", -1)],
+)
+def test_portfolio_counts_have_minimums(key, too_small):
+    with pytest.raises(ConfigError, match=f"portfolio_optimization.{key} must be at least"):
+        parse_config(raw(portfolio={key: too_small}))
+
+
+@pytest.mark.parametrize(
+    "key", ["efficient_frontier_points", "simulated_portfolios", "random_seed"]
+)
+@pytest.mark.parametrize("value", [10.0, "10", True, None])
+def test_portfolio_counts_must_be_integers(key, value):
+    with pytest.raises(ConfigError, match=f"portfolio_optimization.{key} must be an integer"):
+        parse_config(raw(portfolio={key: value}))
+
+
+@pytest.mark.parametrize("value", [0.5, 1, 2.0])
+def test_near_frontier_tolerance_accepts_positive_numbers(value):
+    config = parse_config(raw(portfolio={"near_frontier_tolerance": value}))
+    assert config.portfolio_optimization.near_frontier_tolerance == value
+
+
+@pytest.mark.parametrize("value", [0, -1.0])
+def test_near_frontier_tolerance_must_be_positive(value):
+    with pytest.raises(ConfigError, match="near_frontier_tolerance must be greater than 0"):
+        parse_config(raw(portfolio={"near_frontier_tolerance": value}))
+
+
+@pytest.mark.parametrize("value", ["1", True, None, float("nan")])
+def test_near_frontier_tolerance_must_be_a_number(value):
+    with pytest.raises(ConfigError, match="near_frontier_tolerance must be a number"):
+        parse_config(raw(portfolio={"near_frontier_tolerance": value}))
+
+
 # load_config
 
 
@@ -140,11 +252,14 @@ def test_load_config_reads_a_yaml_file(tmp_path):
     path.write_text(
         "time_series_models:\n"
         "  training_window_length: 100\n"
-        "  evaluation_window_length: 10\n",
+        "  evaluation_window_length: 10\n" + PORTFOLIO_YAML,
         encoding="utf-8",
     )
-    ts = load_config(str(path)).time_series_models
-    assert ts == TimeSeriesConfig(training_window_length=100, evaluation_window_length=10)
+    config = load_config(str(path))
+    assert config.time_series_models == TimeSeriesConfig(
+        training_window_length=100, evaluation_window_length=10
+    )
+    assert config.portfolio_optimization == PortfolioOptimizationConfig(**PORTFOLIO)
 
 
 def test_load_config_missing_file_names_the_path(tmp_path):
@@ -163,7 +278,8 @@ def test_load_config_invalid_yaml_names_the_path(tmp_path):
 def test_load_config_validation_error_names_the_path(tmp_path):
     path = tmp_path / "bad.yml"
     path.write_text(
-        "time_series_models:\n  training_window_length: 252\n", encoding="utf-8"
+        "time_series_models:\n  training_window_length: 252\n" + PORTFOLIO_YAML,
+        encoding="utf-8",
     )
     with pytest.raises(ConfigError, match="bad.yml.*evaluation_window_length"):
         load_config(str(path))
@@ -184,3 +300,4 @@ def test_repository_config_file_is_valid():
     # can be changed freely.
     config = load_config(str(REPO_ROOT / DEFAULT_CONFIG_PATH))
     assert isinstance(config.time_series_models, TimeSeriesConfig)
+    assert isinstance(config.portfolio_optimization, PortfolioOptimizationConfig)

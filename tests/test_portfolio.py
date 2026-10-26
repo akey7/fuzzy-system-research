@@ -1,8 +1,8 @@
 """
-Unit tests for fuzzy_system_research.optimization.portfolio: random weights,
-weight bounds, the optimizers' constraints (including a binding weight cap),
-convergence checks, infeasible efficient-frontier targets, and the risk-free
-rate.
+Unit tests for fuzzy_system_research.optimization.portfolio: the optimizers
+under the shared PortfolioProblem constraints (including a binding weight
+cap), convergence checks, the maximum return portfolio, the efficient
+frontier and its unreached targets, and the risk-free rate.
 
 In-memory only. get_risk_free_rate() is tested inside pytest's tmp_path with
 the FRED download replaced by a fake, so the real input/ folder and the
@@ -21,50 +21,27 @@ from scipy.optimize import OptimizeResult
 from fuzzy_system_research.optimization import portfolio
 from fuzzy_system_research.optimization.portfolio import (
     OptimizationError,
-    calc_efficient_frontier,
-    calc_min_variance_portfolio,
-    calc_weight_bounds,
+    efficient_frontier,
     get_risk_free_rate,
     latest_risk_free_rate,
-    optimize_sharpe_ratio,
-    softmax_random_distribution,
+    max_return_weights,
+    max_sharpe_weights,
+    min_variance_weights,
 )
-from fuzzy_system_research.optimization.workflow import PortfolioAssets
+from fuzzy_system_research.optimization.problem import PortfolioProblem
+
+DAILY_RF = 0.01
 
 
-def assets(n: int) -> PortfolioAssets:
-    return PortfolioAssets(tickers=tuple(f"T{i}" for i in range(n)))
-
-
-# softmax_random_distribution
-
-
-def test_softmax_weights_are_positive_and_sum_to_one():
-    w = softmax_random_distribution(8, rng=np.random.default_rng(1))
-    assert w.shape == (8,)
-    assert (w > 0).all()
-    assert w.sum() == pytest.approx(1.0)
-
-
-def test_softmax_is_reproducible_with_seeded_rng():
-    a = softmax_random_distribution(5, rng=np.random.default_rng(42))
-    b = softmax_random_distribution(5, rng=np.random.default_rng(42))
-    np.testing.assert_array_equal(a, b)
-
-
-@pytest.mark.parametrize("bad_d", [0, -1, 2.5, "3"])
-def test_softmax_rejects_non_positive_integers(bad_d):
-    with pytest.raises(ValueError):
-        softmax_random_distribution(bad_d)
-
-
-# calc_weight_bounds
-
-
-@pytest.mark.parametrize("n", [3, 8, 10])
-def test_weight_bounds_are_long_only_and_capped_at_4_over_n(n):
-    bounds = calc_weight_bounds(assets(n))
-    assert bounds == [(0.0, 4.0 / n)] * n
+def make_problem(mean_returns, cov, cap_multiple: float = 4) -> PortfolioProblem:
+    n = len(mean_returns)
+    return PortfolioProblem(
+        tickers=tuple(f"T{i}" for i in range(n)),
+        daily_mean_returns=np.asarray(mean_returns, dtype=float),
+        daily_cov=np.asarray(cov, dtype=float),
+        daily_risk_free_rate=DAILY_RF,
+        weight_cap_multiple=cap_multiple,
+    )
 
 
 # Optimizers respect a binding weight cap (8 assets: cap = 4/8 = 50 %)
@@ -73,45 +50,91 @@ N_CAPPED = 8
 CAP = 4.0 / N_CAPPED
 
 
-def dominant_asset_inputs():
+def dominant_asset_problem() -> PortfolioProblem:
     """
     Asset 0 has by far the best return and the lowest variance, so without
     the cap both optimizers would put (nearly) everything in it.
     """
     mean_returns = np.array([0.30] + [0.02] * (N_CAPPED - 1))
     cov = np.diag([0.5] + [4.0] * (N_CAPPED - 1))
-    return mean_returns, cov
+    return make_problem(mean_returns, cov)
 
 
-def test_max_sharpe_respects_binding_cap():
-    mean_returns, cov = dominant_asset_inputs()
-    _, weights, _, _ = optimize_sharpe_ratio(assets(N_CAPPED), 0.01, mean_returns, cov)
+@pytest.mark.parametrize("optimizer", [max_sharpe_weights, min_variance_weights])
+def test_optimizers_respect_binding_cap(optimizer):
+    weights = optimizer(dominant_asset_problem())
     assert weights.sum() == pytest.approx(1.0, abs=1e-6)
     assert (weights >= -1e-8).all()
     assert (weights <= CAP + 1e-6).all()
     assert weights[0] == pytest.approx(CAP, abs=1e-4)  # The cap binds.
 
 
-def test_min_variance_respects_binding_cap():
-    mean_returns, cov = dominant_asset_inputs()
-    _, weights, _ = calc_min_variance_portfolio(assets(N_CAPPED), cov, mean_returns)
-    assert weights.sum() == pytest.approx(1.0, abs=1e-6)
-    assert (weights >= -1e-8).all()
-    assert (weights <= CAP + 1e-6).all()
-    assert weights[0] == pytest.approx(CAP, abs=1e-4)  # The cap binds.
+def test_optimizers_use_the_problems_bounds_and_constraints(monkeypatch):
+    # Every optimizer passes exactly the problem's bounds and its budget
+    # constraint to SciPy, so they cannot use different constraint sets.
+    problem = dominant_asset_problem()
+    seen = []
+    real = portfolio.minimize
+
+    def spy(fun, x0, **kwargs):
+        seen.append(kwargs)
+        return real(fun, x0, **kwargs)
+
+    monkeypatch.setattr(portfolio, "minimize", spy)
+    min_variance_weights(problem)
+    max_sharpe_weights(problem)
+    max_return_weights(problem)
+    efficient_frontier(problem, 0.05, 0.1, 3)
+    assert len(seen) == 6
+    for kwargs in seen:
+        assert kwargs["method"] == "SLSQP"
+        assert kwargs["bounds"] == problem.bounds()
+        budget = kwargs["constraints"][0]
+        assert budget["fun"] is problem.constraints()[0]["fun"]
 
 
 def test_max_sharpe_is_optimal_among_random_feasible_portfolios():
-    mean_returns, cov = dominant_asset_inputs()
-    rf = 0.01
-    best_sharpe, _, _, _ = optimize_sharpe_ratio(assets(N_CAPPED), rf, mean_returns, cov)
-    rng = np.random.default_rng(3)
-    for _ in range(2000):
-        w = rng.dirichlet(np.ones(N_CAPPED))
-        if w.max() > CAP:
-            continue  # Only compare against portfolios the optimizer may choose.
-        sharpe = (w @ mean_returns - rf) / np.sqrt(w @ cov @ w)
-        assert sharpe <= best_sharpe + 1e-5  # SLSQP convergence tolerance.
+    problem = dominant_asset_problem()
+    stats = problem.portfolio_stats(max_sharpe_weights(problem))
+    samples = problem.sample_feasible_weights(5000, np.random.default_rng(3))
+    sampled = problem.portfolio_stats(samples)
+    assert sampled.sharpe_ratio.max() <= stats.sharpe_ratio + 1e-4
+
+
+def test_min_variance_is_least_risky_among_random_feasible_portfolios():
+    problem = dominant_asset_problem()
+    risk = problem.portfolio_stats(min_variance_weights(problem)).risk
+    samples = problem.sample_feasible_weights(5000, np.random.default_rng(4))
+    assert problem.portfolio_stats(samples).risk.min() >= risk * (1 - 1e-4)
+
+
+def greedy_max_return(problem: PortfolioProblem) -> float:
+    """
+    Closed-form maximum return under the current constraints (long-only,
+    sum to 1, each weight at most the cap): fill the highest-return assets
+    up to the cap, in order.
+    """
+    remaining, total = 1.0, 0.0
+    for mu in sorted(problem.daily_mean_returns, reverse=True):
+        w = min(problem.weight_cap, remaining)
+        total += w * mu
+        remaining -= w
+    return total
+
+
+@pytest.mark.parametrize("cap_multiple", [1.5, 2, 4])
+def test_max_return_portfolio_matches_closed_form(cap_multiple):
+    mean_returns = np.array([0.05, 0.12, 0.08, 0.20, 0.01])
+    problem = make_problem(mean_returns, np.eye(5), cap_multiple)
+    weights = max_return_weights(problem)
+    assert problem.max_constraint_violation(weights) <= 1e-6
+    assert problem.daily_mean_return(weights) == pytest.approx(
+        greedy_max_return(problem), abs=1e-6
+    )
+    # The library's closed form, used by the run-time check, agrees too.
+    assert problem.daily_mean_return(
+        problem.max_return_weights_closed_form()
+    ) == pytest.approx(greedy_max_return(problem), abs=1e-12)
 
 
 # Convergence: an unconverged optimization must not return weights
@@ -130,55 +153,67 @@ def failing_minimize(monkeypatch):
     monkeypatch.setattr(portfolio, "minimize", fake_minimize)
 
 
-def test_min_variance_raises_if_it_does_not_converge(failing_minimize):
-    mean_returns, cov = dominant_asset_inputs()
-    with pytest.raises(OptimizationError, match="minimum variance.*Iteration limit"):
-        calc_min_variance_portfolio(assets(N_CAPPED), cov, mean_returns)
-
-
-def test_max_sharpe_raises_if_it_does_not_converge(failing_minimize):
-    mean_returns, cov = dominant_asset_inputs()
-    with pytest.raises(OptimizationError, match="max Sharpe ratio.*status 9"):
-        optimize_sharpe_ratio(assets(N_CAPPED), 0.01, mean_returns, cov)
+@pytest.mark.parametrize(
+    "optimizer, name",
+    [
+        (min_variance_weights, "minimum variance.*Iteration limit"),
+        (max_sharpe_weights, "max Sharpe ratio.*status 9"),
+        (max_return_weights, "maximum return"),
+    ],
+)
+def test_optimizers_raise_if_they_do_not_converge(failing_minimize, optimizer, name):
+    with pytest.raises(OptimizationError, match=name):
+        optimizer(dominant_asset_problem())
 
 
 def test_unreached_frontier_targets_stay_nan_instead_of_raising(failing_minimize):
     # The efficient frontier records an unreachable target as NaN (see the
-    # contract); only the two portfolio optimizations must converge.
-    mean_returns, cov = dominant_asset_inputs()
-    risks, _ = calc_efficient_frontier(
-        assets(N_CAPPED), 0.02, 0.3, mean_returns, cov, num_portfolios=5
-    )
-    assert np.isnan(risks).all()
+    # contract); only the portfolio optimizations must converge.
+    targets, weights = efficient_frontier(dominant_asset_problem(), 0.02, 0.3, 5)
+    assert len(targets) == 5
+    assert np.isnan(weights).all()
 
 
 def test_optimization_error_is_a_runtime_error():
     assert issubclass(OptimizationError, RuntimeError)
 
 
-# calc_efficient_frontier: infeasible targets become NaN
+# efficient_frontier
 
 
 def test_efficient_frontier_marks_unreachable_targets_as_nan():
     # Three assets, cap 4/3 (not binding): the highest reachable return is
     # max(mean_returns) = 0.3, so targets up to 0.6 are partly infeasible.
-    mean_returns = np.array([0.1, 0.2, 0.3])
-    cov = np.diag([1.0, 2.0, 3.0])
-    min_var_risk, _, min_var_return = calc_min_variance_portfolio(
-        assets(3), cov, mean_returns
+    problem = make_problem([0.1, 0.2, 0.3], np.diag([1.0, 2.0, 3.0]))
+    min_var = min_variance_weights(problem)
+    targets, weights = efficient_frontier(
+        problem, problem.daily_mean_return(min_var), 0.6, 50
     )
-    risks, targets = calc_efficient_frontier(
-        assets(3), min_var_return, 0.6, mean_returns, cov, num_portfolios=50
-    )
-    risks = np.asarray(risks)
-    assert len(risks) == len(targets) == 50
+    risks = problem.portfolio_stats(weights).risk
+    assert weights.shape == (50, 3)
     assert np.isnan(risks[targets > 0.3 + 1e-6]).all()
     # Stay clear of the corner w = (0, 0, 1), where SLSQP may legitimately stop.
     feasible = risks[targets < 0.3 - 0.02]
     assert np.isfinite(feasible).all()
-    assert feasible[0] == pytest.approx(min_var_risk, rel=1e-3)
-    # Upper (efficient) branch: risk does not decrease as the target rises.
+    assert feasible[0] == pytest.approx(problem.portfolio_stats(min_var).risk, rel=1e-3)
+    # Upper (efficient) branch: volatility does not decrease as the target rises.
     assert (np.diff(feasible) >= -1e-6).all()
+
+
+def test_efficient_frontier_points_hit_their_targets_within_the_cap():
+    problem = make_problem(
+        [0.05, 0.12, 0.08, 0.20, 0.01], np.diag([1.0, 2.0, 1.5, 3.0, 0.5]), 2
+    )
+    low = problem.daily_mean_return(min_variance_weights(problem))
+    high = problem.daily_mean_return(max_return_weights(problem))
+    targets, weights = efficient_frontier(problem, low, high, 20)
+    assert targets[0] == low and targets[-1] == high
+    reached = ~np.isnan(weights).any(axis=1)
+    assert reached[:-2].all()  # Only points at the corner at the very top may be missed.
+    assert problem.max_constraint_violation(weights[reached]).max() <= 1e-6
+    np.testing.assert_allclose(
+        problem.daily_mean_return(weights[reached]), targets[reached], atol=1e-6
+    )
 
 
 # Risk-free rate

@@ -8,13 +8,15 @@ here touches the network, a bucket, or the real input/ and output/ folders.
 
 import os
 
-import numpy as np
+import h5py
 import pandas as pd
 import pytest
 import yaml
 
 from conftest import SYNTHETIC_TICKERS, make_long_prices
-from fuzzy_system_research.config import TimeSeriesConfig
+from fuzzy_system_research import pipeline
+from fuzzy_system_research.optimization.workflow import InvariantError
+from fuzzy_system_research.config import PortfolioOptimizationConfig, TimeSeriesConfig
 from fuzzy_system_research.data.prices import pivot_close_wide
 from fuzzy_system_research.pipeline import (
     OPTIMIZATION_LOOKBACK_SESSIONS,
@@ -41,6 +43,15 @@ TS_CONFIG = TimeSeriesConfig(training_window_length=252, evaluation_window_lengt
 ARIMA_WINDOW_SESSIONS = TS_CONFIG.arima_window_sessions
 EVALUATION_DAYS = TS_CONFIG.evaluation_window_length
 TRAINING_WINDOW_RETURNS = TS_CONFIG.training_window_returns
+# Small optimization settings keep the many pipeline runs fast; the
+# optimization itself is tested in tests/test_workflow.py.
+PO_CONFIG = PortfolioOptimizationConfig(
+    weight_cap_multiple=4,
+    efficient_frontier_points=20,
+    simulated_portfolios=500,
+    random_seed=0,
+    near_frontier_tolerance=1.0,
+)
 REQUIRED_SESSIONS = required_sessions(TS_CONFIG)
 PRICE_DOWNLOAD_SESSIONS = price_download_sessions(TS_CONFIG)
 # A full download: as many sessions as the pipeline requests.
@@ -129,7 +140,7 @@ def deps(tmp_path):
         risk_free_rate_getter=lambda dm: dict(RF_DATA),
         dm=object(),
         output_root=str(tmp_path / "output"),
-        rng=np.random.default_rng(0),
+        po_config=PO_CONFIG,
     )
     return tdm, trainer, uploader, kwargs
 
@@ -230,11 +241,38 @@ def test_settings_flow_from_the_config_into_every_step(upload_env, deps):
     ].strftime("%Y-%m-%d")
 
 
-def test_ts_config_is_required(upload_env, deps):
+@pytest.mark.parametrize("config_kwarg", ["ts_config", "po_config"])
+def test_configs_are_required(upload_env, deps, config_kwarg):
     _, _, _, kwargs = deps
-    del kwargs["ts_config"]
-    with pytest.raises(TypeError, match="ts_config"):
+    del kwargs[config_kwarg]
+    with pytest.raises(TypeError, match=config_kwarg):
         run_pipeline(**kwargs)
+
+
+def test_optimization_settings_flow_into_the_plot_data(upload_env, deps):
+    _, _, _, kwargs = deps
+    result = run_pipeline(**kwargs)
+    with h5py.File(result.plot_data_path, "r") as hf:
+        assert hf["efficient_frontier/xs"].shape == (PO_CONFIG.efficient_frontier_points,)
+        assert hf["simulated_portfolios/xs"].shape == (PO_CONFIG.simulated_portfolios,)
+        # The capital allocation line ends at the max Sharpe ratio point.
+        assert hf["tangency_line/xs"][-1] == hf["max_sharpe_ratio/xs"][0]
+
+
+def test_mismatched_optimization_files_upload_nothing(upload_env, deps, monkeypatch):
+    # verify_optimization_files() runs after both files are written and
+    # before any upload; if it fails, nothing (not even the forecasts) is
+    # uploaded.
+    _, _, uploader, kwargs = deps
+
+    def mismatch(plot_data_path, metadata_path):
+        assert os.path.isfile(plot_data_path) and os.path.isfile(metadata_path)
+        raise InvariantError("files disagree")
+
+    monkeypatch.setattr(pipeline, "verify_optimization_files", mismatch)
+    with pytest.raises(InvariantError, match="files disagree"):
+        run_pipeline(**kwargs)
+    assert uploader.calls == []
 
 
 def test_short_cached_download_is_downloaded_again_once(upload_env, deps):

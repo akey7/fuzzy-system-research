@@ -44,21 +44,28 @@ Always run scripts from the repository root, because the scripts read and write 
 
 ### Model settings
 
-Time series settings live in `config/modeling_and_optimization.yml`, which is checked into the repository. **For the current values, and what each setting means, consult that file's comments;** the validation rules (types and minimums) are documented in `src/fuzzy_system_research/config.py`. This document deliberately does not repeat the values, so it cannot go out of date when they change.
+Time series and portfolio optimization settings live in `config/modeling_and_optimization.yml`, which is checked into the repository. **For the current values, and what each setting means, consult that file's comments;** the validation rules (types and minimums) are documented in `src/fuzzy_system_research/config.py`. This document deliberately does not repeat the values, so it cannot go out of date when they change.
 
 ```yaml
 time_series_models:
-  training_window_length: ...    # closes (trading sessions) per ARIMA training window
-  evaluation_window_length: ...  # most recent trading days backtested and scored
+  training_window_length: ...     # closes (trading sessions) per ARIMA training window
+  evaluation_window_length: ...   # most recent trading days backtested and scored
+portfolio_optimization:
+  weight_cap_multiple: ...        # each weight ≤ this / number of tickers
+  efficient_frontier_points: ...  # target returns on the efficient frontier
+  simulated_portfolios: ...       # random feasible portfolios in the plot data
+  random_seed: ...                # seed for those random portfolios
+  near_frontier_tolerance: ...    # pp of return counted as near the frontier (metadata only)
 ```
 
 - `training_window_length` counts **closing prices**; each window has one fewer daily log return than closes.
 - `evaluation_window_length` is the number of backtest days in `all_forecasts.csv` (plus the live forecast) and in the metrics of `all_forecasts_metadata.yml`.
 - Both keys are required, and unknown keys are rejected, so a typo stops the run before any download instead of silently using a default.
 - The run downloads enough history for the ARIMA windows plus scored days and for the optimization's 252 sessions, whichever is longer, with a small margin.
-- Each run records the values it used in `all_forecasts_metadata.yml` (`forecast_window.training_window_returns`, `evaluation_window.target_trading_days`), which is where the frontend reads them.
+- Each run records the time series values it used in `all_forecasts_metadata.yml` (`forecast_window.training_window_returns`, `evaluation_window.target_trading_days`), which is where the frontend reads them.
+- The portfolio settings apply to one shared problem definition: the weight cap constrains the max Sharpe ratio and minimum variance portfolios, the efficient frontier, and the random portfolios alike. `efficient_frontier_points` and `simulated_portfolios` set the lengths of those arrays in `portfolio_optimization_plot_data.h5`, which the frontend reads from the file. The same seed and data draw the same random portfolios.
 
-Changing a value changes what is uploaded. Run with `--retrain-arima` afterwards, because the cached forecasts for a date are otherwise reused. `INTERFACE_CONTRACT.md` does not state the values, so changing them needs no contract update as long as their meaning stays the same.
+Changing a value changes what is uploaded. After changing a time series setting, run with `--retrain-arima`, because the cached forecasts for a date are otherwise reused; the optimization is recomputed on every run. `INTERFACE_CONTRACT.md` does not depend on the values, so changing them needs no contract update as long as their meaning stays the same.
 
 ### Running the tests
 
