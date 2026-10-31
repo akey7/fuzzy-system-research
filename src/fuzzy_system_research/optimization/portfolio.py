@@ -16,6 +16,7 @@ import os
 import json
 import datetime
 import numpy as np
+import pandas as pd
 from scipy.optimize import minimize
 import pandas_datareader as web
 from dateutil.relativedelta import relativedelta
@@ -227,6 +228,77 @@ def latest_risk_free_rate(tb3m_df) -> dict:
         "daily_risk_free_rate": risk_free_rate / TRADING_DAYS_PER_YEAR,
         "risk_free_rate_date": str(valid.index[0]),
     }
+
+
+def risk_free_rate_before(tb3m_df, cutoff) -> dict:
+    """
+    The most recent valid 3-month T-bill rate dated strictly before cutoff,
+    in the form of latest_risk_free_rate(). A rate observed on the cutoff
+    itself is excluded: FRED publishes DTB3 with a lag, so it may not have
+    been available at that day's close. Pure function.
+
+    Parameters
+    ----------
+    tb3m_df : pd.DataFrame
+        FRED DTB3 data, as for latest_risk_free_rate().
+
+    cutoff : pd.Timestamp
+        The optimization date. Any time of day is dropped.
+
+    Returns
+    -------
+    dict[str, float | str]
+        As returned by latest_risk_free_rate().
+
+    Raises
+    ------
+    ValueError
+        If there is no non-missing DTB3 value before cutoff.
+    """
+    return latest_risk_free_rate(tb3m_df[tb3m_df.index.normalize() < cutoff.normalize()])
+
+
+def get_risk_free_rate_history(dm):
+    """
+    Finds the 3-month U.S. treasury bill rates (FRED DTB3) of the past year,
+    for the portfolio backtest, which uses the rate available at each of its
+    past optimization dates. Caches them in input/Risk Free Rate History
+    YYYY-MM-DD.csv (today's date) so that repeated calls on the same day do
+    not download again. A cached file with no valid rate is ignored and
+    replaced. The input/ folder is created when the cache is written, if it
+    does not exist yet.
+
+    Parameters
+    ----------
+    dm : DateManager
+        Supplies today's date for the cache file name.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DatetimeIndex and a "DTB3" column holding the annualized rate in
+        percent, empty on days with no published rate.
+
+    Raises
+    ------
+    ValueError
+        If FRED returns no valid DTB3 rate for the past year.
+    """
+    today_date = dm.get_today_date()
+    history_filename = os.path.join("input", f"Risk Free Rate History {today_date}.csv")
+    if os.path.exists(history_filename):
+        print("Reading risk-free rate history cache...")
+        tb3m_df = pd.read_csv(history_filename, index_col=0, parse_dates=True)
+        if tb3m_df["DTB3"].notna().any():
+            return tb3m_df
+        print("Cached risk-free rate history is invalid; downloading again...")
+    end_date = datetime.datetime.now()
+    start_date = end_date - relativedelta(years=1)
+    tb3m_df = web.DataReader("DTB3", "fred", start_date, end_date)
+    if not tb3m_df["DTB3"].notna().any():
+        raise ValueError("No non-missing DTB3 (3-month T-bill) rate in the data.")
+    tb3m_df.to_csv(ensure_parent_dir(history_filename))
+    return tb3m_df
 
 
 def get_risk_free_rate(dm) -> dict:

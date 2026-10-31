@@ -4,9 +4,9 @@ under the shared PortfolioProblem constraints (including a binding weight
 cap), convergence checks, the maximum return portfolio, the efficient
 frontier and its unreached targets, and the risk-free rate.
 
-In-memory only. get_risk_free_rate() is tested inside pytest's tmp_path with
-the FRED download replaced by a fake, so the real input/ folder and the
-network are never touched.
+In-memory only. get_risk_free_rate() and get_risk_free_rate_history() are
+tested inside pytest's tmp_path with the FRED download replaced by a fake, so
+the real input/ folder and the network are never touched.
 """
 
 import json
@@ -23,10 +23,12 @@ from fuzzy_system_research.optimization.portfolio import (
     OptimizationError,
     efficient_frontier,
     get_risk_free_rate,
+    get_risk_free_rate_history,
     latest_risk_free_rate,
     max_return_weights,
     max_sharpe_weights,
     min_variance_weights,
+    risk_free_rate_before,
 )
 from fuzzy_system_research.optimization.problem import PortfolioProblem
 
@@ -253,6 +255,26 @@ def test_latest_risk_free_rate_with_no_valid_value_raises():
         latest_risk_free_rate(df)
 
 
+def test_risk_free_rate_before_excludes_the_cutoff_and_later():
+    df = fred_frame(["2026-10-07", "2026-10-08", "2026-10-09"], [4.10, 4.05, 4.00])
+    data = risk_free_rate_before(df, pd.Timestamp("2026-10-08 17:00:00"))
+    assert data["risk_free_rate"] == pytest.approx(4.10)
+    assert data["daily_risk_free_rate"] == pytest.approx(4.10 / 252)
+    assert data["risk_free_rate_date"] == "2026-10-07 00:00:00"
+
+
+def test_risk_free_rate_before_skips_holiday_nan():
+    df = fred_frame(["2026-10-09", "2026-10-12"], [4.07, np.nan])
+    data = risk_free_rate_before(df, pd.Timestamp("2026-10-13"))
+    assert data["risk_free_rate"] == pytest.approx(4.07)
+
+
+def test_risk_free_rate_before_with_nothing_earlier_raises():
+    df = fred_frame(["2026-10-09"], [4.07])
+    with pytest.raises(ValueError):
+        risk_free_rate_before(df, pd.Timestamp("2026-10-09"))
+
+
 class FakeDateManager:
     def get_today_date(self) -> str:
         return "2026-10-14"
@@ -330,3 +352,49 @@ def test_get_risk_free_rate_with_no_valid_rate_raises_and_writes_nothing(
     with pytest.raises(ValueError):
         get_risk_free_rate(FakeDateManager())
     assert not os.path.exists(in_tmp_input)
+
+
+HISTORY_CACHE = os.path.join("input", "Risk Free Rate History 2026-10-14.csv")
+
+
+def test_get_risk_free_rate_history_downloads_and_writes_cache(in_tmp_input, fake_fred):
+    data = get_risk_free_rate_history(FakeDateManager())
+    assert fake_fred["count"] == 1
+    assert data["DTB3"].iloc[0] == pytest.approx(4.07)
+    assert os.path.exists(HISTORY_CACHE)
+
+
+def test_get_risk_free_rate_history_cache_reads_back_without_download(
+    in_tmp_input, fake_fred
+):
+    downloaded = get_risk_free_rate_history(FakeDateManager())
+    cached = get_risk_free_rate_history(FakeDateManager())
+    assert fake_fred["count"] == 1
+    assert list(cached.index) == list(downloaded.index)
+    assert isinstance(cached.index, pd.DatetimeIndex)
+    assert cached["DTB3"].iloc[0] == pytest.approx(4.07)
+    assert np.isnan(cached["DTB3"].iloc[1])  # A holiday stays empty.
+
+
+def test_get_risk_free_rate_history_replaces_a_cache_without_rates(in_tmp_input, fake_fred):
+    fred_frame(["2026-10-12"], [np.nan]).to_csv(HISTORY_CACHE)
+    data = get_risk_free_rate_history(FakeDateManager())
+    assert fake_fred["count"] == 1
+    assert data["DTB3"].iloc[0] == pytest.approx(4.07)
+
+
+def test_get_risk_free_rate_history_creates_missing_input_folder(
+    tmp_path, monkeypatch, fake_fred
+):
+    monkeypatch.chdir(tmp_path)
+    get_risk_free_rate_history(FakeDateManager())
+    assert os.path.exists(HISTORY_CACHE)
+
+
+def test_get_risk_free_rate_history_with_no_valid_rate_raises_and_writes_nothing(
+    in_tmp_input, fake_fred
+):
+    fake_fred["df"] = fred_frame(["2026-10-12"], [np.nan])
+    with pytest.raises(ValueError):
+        get_risk_free_rate_history(FakeDateManager())
+    assert not os.path.exists(HISTORY_CACHE)

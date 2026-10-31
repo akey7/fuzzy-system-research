@@ -97,7 +97,7 @@ EXACT_RELATIVE_TOLERANCE = 1e-9
 
 
 class InvariantError(OptimizationError):
-    """The plot data disagree with the optimization, so nothing is uploaded."""
+    """The results fail a consistency check, so nothing is uploaded."""
 
 
 @dataclass(frozen=True)
