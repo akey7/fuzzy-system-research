@@ -477,8 +477,9 @@ def check_optimization_invariants(
 ) -> None:
     """
     Check that the plot data agree with the optimization, and raise
-    InvariantError (stopping the run before anything is written or
-    uploaded) if they do not. The tolerances are the module constants
+    InvariantError (stopping the run before the optimization files are
+    written and before anything is uploaded) if they do not. The tolerances
+    are the module constants
     WEIGHT_TOLERANCE, SHARPE_TOLERANCE, RISK_RELATIVE_TOLERANCE,
     RETURN_TOLERANCE, and EXACT_RELATIVE_TOLERANCE.
 
